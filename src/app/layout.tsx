@@ -20,9 +20,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
-                <CartProvider>
+        <CartProvider>
           <Navbar />
-          <main>{children}</main>
+          <main className="min-h-[calc(100vh-8rem)]">{children}</main>
+          <footer className="mt-12 border-t border-slate-800 bg-slate-900">
+            <div className="container mx-auto px-4 py-6 text-center text-sm text-slate-400">
+              © 2026 AdviShopping · Built with Next.js + Supabase
+            </div>
+          </footer>
         </CartProvider>
       </body>
     </html>

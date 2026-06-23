@@ -2,24 +2,15 @@
 
 export default function ProductCardSkeleton() {
   return (
-    <div className="border rounded-lg shadow-sm flex flex-col h-full overflow-hidden">
-      {/* Image Skeleton */}
-      <div className="relative w-full h-48 bg-gray-900 animate-pulse"></div>
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-sm">
+      {/* Image */}
+      <div className="aspect-square w-full animate-pulse bg-slate-800" />
 
-      {/* Content Skeleton */}
-      <div className="p-4 flex flex-col flex-grow">
-        <div className="h-6 w-3/4 bg-gray-900 rounded animate-pulse mb-2"></div>
-        <div className="h-4 w-1/2 bg-gray-900 rounded animate-pulse mb-4"></div>
-        <div className="h-4 w-full bg-gray-900 rounded animate-pulse"></div>
-        <div className="h-4 w-5/6 bg-gray-900 rounded animate-pulse mt-1"></div>
-      </div>
-
-      {/* Action Area Skeleton */}
-      <div className="p-4 pt-0">
-        <div className="flex justify-between items-center mt-2">
-          <div className="h-8 w-1/3 bg-gray-700 rounded animate-pulse"></div>
-          <div className="h-10 w-1/2 bg-gray-700 rounded-md animate-pulse"></div>
-        </div>
+      {/* Body */}
+      <div className="flex flex-1 flex-col gap-2 p-4">
+        <div className="h-4 w-3/4 animate-pulse rounded bg-slate-800" />
+        <div className="h-4 w-1/2 animate-pulse rounded bg-slate-800" />
+        <div className="mt-auto h-3 w-1/3 animate-pulse rounded bg-slate-800 pt-3" />
       </div>
     </div>
   );
