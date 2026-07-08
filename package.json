@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "embeddings": "node scripts/generate-embeddings.mjs",
+    "image-embeddings": "node scripts/generate-image-embeddings.mjs",
     "evaluate": "node scripts/evaluate.mjs"
   },
   "dependencies": {

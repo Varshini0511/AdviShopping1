@@ -23,6 +23,7 @@ export default function Navbar() {
     { href: '/category/dress', label: 'Dress' },
     { href: '/category/books', label: 'Books' },
     { href: '/category/accessories', label: 'Accessories' },
+    { href: '/visual-search', label: '📷 Visual Search' },
   ];
 
   useEffect(() => {
