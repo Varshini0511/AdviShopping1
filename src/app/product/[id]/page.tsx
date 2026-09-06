@@ -18,9 +18,9 @@ export async function generateStaticParams() {
     id: id.toString(),
   })) || [];
 }
-export default async function ProductPage({ params }: { params: { id: string } }) {
+export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const supabase = createServerComponentClient({ cookies });
-  const { id } =  params;
+  const { id } = await params;
 
   // This query fetches the base product and ALL of its related variants and specifications in one go.
   const { data: product } = await supabase

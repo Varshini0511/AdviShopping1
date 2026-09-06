@@ -8,14 +8,16 @@ const CATEGORIES = ['Electronics', 'Dress', 'Books', 'Accessories'];
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams?: {
+  // Next.js 15: params/searchParams are Promises and must be awaited.
+  searchParams?: Promise<{
     q?: string;
     max_price?: string;
     in_stock?: string;
     category?: string;
-  };
+  }>;
 }) {
-  const query = searchParams?.q?.trim() || '';
+  const params = await searchParams;
+  const query = params?.q?.trim() || '';
 
   if (!query) {
     return (
@@ -26,11 +28,11 @@ export default async function SearchPage({
   }
 
   // Parse metadata filters from the URL.
-  const maxPriceNum = Number(searchParams?.max_price);
+  const maxPriceNum = Number(params?.max_price);
   const filters: SearchFilters = {
-    category: searchParams?.category || null,
-    inStock: searchParams?.in_stock === 'on',
-    maxPrice: searchParams?.max_price && !Number.isNaN(maxPriceNum) ? maxPriceNum : null,
+    category: params?.category || null,
+    inStock: params?.in_stock === 'on',
+    maxPrice: params?.max_price && !Number.isNaN(maxPriceNum) ? maxPriceNum : null,
   };
 
   const { stages, results, summary, llmEnabled } = await runSearchPipeline(query, filters);

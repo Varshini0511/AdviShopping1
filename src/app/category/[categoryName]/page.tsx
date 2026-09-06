@@ -6,9 +6,13 @@ import ProductCard from '@/components/ProductCard';
 
 export const revalidate = 60;
 
-export default async function CategoryPage({ params }: { params: { categoryName: string } }) {
+export default async function CategoryPage({
+  params,
+}: {
+  params: Promise<{ categoryName: string }>;
+}) {
   const supabase = createServerComponentClient({ cookies });
-  const { categoryName } = params;
+  const { categoryName } = await params;
 
   // Format the category name from the URL to match the database (e.g., "electronics" -> "Electronics")
   const categoryNamee = categoryName.charAt(0).toUpperCase() + categoryName.slice(1);
