@@ -18,7 +18,10 @@ export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const MODEL = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+// Groq rotates its model catalog and removes older ones without much notice
+// (llama-3.3-70b-versatile started returning 404 model_not_found). Override with
+// GROQ_MODEL if this one is retired too — check https://console.groq.com/docs/models
+const MODEL = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
 const MAX_STEPS = 5; // hard cap on the agent loop so a confused model can't spin forever
 
 const SYSTEM_PROMPT = `You are the AdviShopping shopping assistant, embedded in the store's chat widget.

@@ -9,13 +9,15 @@
 //
 // Config in .env.local:
 //   GROQ_API_KEY=gsk_...                 (required to enable this stage)
-//   GROQ_MODEL=llama-3.3-70b-versatile   (optional; this is the default)
+//   GROQ_MODEL=qwen/qwen3.8-27b          (optional; this is the default)
 //
 // If GROQ_API_KEY is absent the pipeline still works — this returns
 // { enabled: false } and the app falls back to keyword-overlap reasons.
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+// Groq retires models without much notice — override via GROQ_MODEL if this
+// one starts returning 404 model_not_found.
+const DEFAULT_MODEL = 'qwen/qwen3.8-27b';
 
 export type RankingReason = { id: number; why: string };
 
