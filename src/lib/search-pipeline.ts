@@ -69,6 +69,11 @@ const SEMANTIC_WEIGHT = 1.0;
 // candidate is relevant (common for queries whose words don't appear in the
 // catalog). Trusting that ranking just adds noise, so we keep the fused order.
 const RERANK_CONFIDENCE_FLOOR = -8;
+// Set DISABLE_RERANKER=true on memory-constrained hosts (e.g. a 512MB free
+// tier). The cross-encoder is ~80MB and, per `npm run evaluate`, only moves
+// NDCG@5 from 99.3% to 99.6% on this catalog — a poor RAM trade there.
+// The model loads lazily, so not calling rerank() means it never loads at all.
+const RERANKER_ENABLED = process.env.DISABLE_RERANKER !== 'true';
 
 // Fallback "why" when the LLM stage is disabled — plain keyword overlap,
 // matching the kind of explanation in the requested example output.
@@ -137,7 +142,7 @@ export async function runSearchPipeline(
   const shortlist = sorted
     .slice(0, SHORTLIST)
     .map((p) => ({ ...p, text: `${p.name}. ${p.description ?? ''}` }));
-  const reranked = await rerank(query, shortlist);
+  const reranked = RERANKER_ENABLED ? await rerank(query, shortlist) : [];
   const rerankConfident =
     reranked.length > 0 && reranked[0].score >= RERANK_CONFIDENCE_FLOOR;
   // When confident, use the cross-encoder order; otherwise keep the fused (RRF)
@@ -219,9 +224,11 @@ export async function runSearchPipeline(
     },
     {
       name: '5 · Rerank (cross-encoder)',
-      note: rerankConfident
-        ? `top ${reranked.length} re-scored`
-        : `low confidence (best ${reranked[0]?.score.toFixed(2) ?? 'n/a'}) — kept fused order`,
+      note: !RERANKER_ENABLED
+        ? 'disabled (DISABLE_RERANKER=true) — using fused RRF order'
+        : rerankConfident
+          ? `top ${reranked.length} re-scored`
+          : `low confidence (best ${reranked[0]?.score.toFixed(2) ?? 'n/a'}) — kept fused order`,
       items: ordered.map((p) => ({ id: p.id, name: p.name, meta: `score ${p.score.toFixed(2)}` })),
     },
     {

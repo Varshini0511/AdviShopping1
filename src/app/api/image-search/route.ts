@@ -14,6 +14,16 @@ const CARD_COLUMNS =
   'id, name, description, image_url, stock, bestseller, rating, review_count, discount_percent';
 
 export async function POST(request: Request) {
+  // Set DISABLE_VISUAL_SEARCH=true on memory-constrained hosts. CLIP is ~150MB
+  // — the single largest model in the app. It loads lazily, so returning early
+  // here means it is never loaded into the process at all.
+  if (process.env.DISABLE_VISUAL_SEARCH === 'true') {
+    return NextResponse.json(
+      { error: 'Visual search is disabled in this deployment (memory limits). Try the text search instead.' },
+      { status: 503 }
+    );
+  }
+
   try {
     const form = await request.formData();
     const file = form.get('image');

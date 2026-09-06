@@ -5,6 +5,7 @@ import { Inter } from 'next/font/google';
 import './globals.css';
 import { CartProvider } from '@/context/CartContext';
 import Navbar from '@/components/Navbar'; // We will create this next
+import ChatWidget from '@/components/ChatWidget';
 //import { Lora } from 'next/font/google'; 
 import { PropsWithChildren } from 'react';
 const inter = Inter({ subsets: ['latin'] });
@@ -28,6 +29,7 @@ export default function RootLayout({
               © 2026 AdviShopping · Built with Next.js + Supabase
             </div>
           </footer>
+          <ChatWidget />
         </CartProvider>
       </body>
     </html>
