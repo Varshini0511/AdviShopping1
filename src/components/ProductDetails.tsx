@@ -3,6 +3,7 @@
 
 import { useState, useEffect, useContext } from 'react';
 import Image from 'next/image';
+import Link from 'next/link';
 import { CartContext } from '@/context/CartContext';
 
 // --- Define your TypeScript types (ensure they match your DB structure) ---
@@ -32,12 +33,15 @@ type DetailedProduct = Product & {
 };
 // --- End of Types ---
 
+type Feedback = { kind: 'success' | 'login' | 'error'; text: string };
+
 export default function ProductDetails({ product }: { product: DetailedProduct }) {
- const { addToCart } = useContext(CartContext);
+  const { addToCart } = useContext(CartContext);
   const [selectedVariant, setSelectedVariant] = useState(product?.product_variants[0]);
-  const [quantity, setQuantity] = useState(1);
   const [selectedColor, setSelectedColor] = useState(product?.product_variants[0]?.color);
   const [selectedSize, setSelectedSize] = useState(product?.product_variants[0]?.size);
+  const [adding, setAdding] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
 
   useEffect(() => {
     // This effect will run only after the component has rendered and the product data is available.
@@ -47,75 +51,88 @@ export default function ProductDetails({ product }: { product: DetailedProduct }
       );
       if (newVariant) {
         setSelectedVariant(newVariant);
-        setQuantity(1);
+        setFeedback(null);
       }
     }
   }, [selectedColor, selectedSize, product?.product_variants]);
 
-  // --- SECTION 2: SAFETY CHECK / EARLY RETURN ---
+  // --- SAFETY CHECK / EARLY RETURN ---
   if (!product || !product.product_variants || product.product_variants.length === 0) {
     return (
-      <div className="container mx-auto p-8 text-center">
-        <h1 className="text-2xl font-bold">Product not found or currently unavailable.</h1>
+      <div className="container mx-auto px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold text-slate-100">Product not found or currently unavailable.</h1>
+        <Link href="/" className="mt-4 inline-block text-sm font-semibold text-indigo-400 hover:text-indigo-300">
+          ← Back to the store
+        </Link>
       </div>
     );
   }
 
-  // --- SECTION 3: DERIVED VALUES & EVENT HANDLERS ---
+  // --- DERIVED VALUES & EVENT HANDLERS ---
   // This code only runs if the product prop is valid.
   const { product_variants } = product;
   const uniqueColors = [...new Set(product_variants.map(v => v.color))];
   const uniqueSizes = [...new Set(product_variants.map(v => v.size))];
 
-// This is the NEW, corrected code
-const originalPrice = selectedVariant.price || 0;
-const discount = parseFloat(String(selectedVariant.discount_percent ?? 0)) || 0;
-const hasDiscount = discount > 0;
+  const originalPrice = selectedVariant.price || 0;
+  const discount = parseFloat(String(selectedVariant.discount_percent ?? 0)) || 0;
+  const finalPrice = discount > 0 ? originalPrice - (originalPrice * discount / 100) : originalPrice;
 
-const finalPrice = hasDiscount
-  ? originalPrice - (originalPrice * discount / 100)
-  : originalPrice;
+  const handleAddToCart = async () => {
+    setAdding(true);
+    setFeedback(null);
+    const result = await addToCart(selectedVariant.id, selectedVariant.product_id);
+    setAdding(false);
 
-  // --- 5. Event Handlers ---
-  const handleAddToCart = () => {
-    addToCart(selectedVariant.id, selectedVariant.product_id);
-    alert(`${quantity} x ${product.name} (${selectedVariant.color}, ${selectedVariant.size}) added to cart!`);
+    if (result === 'added') {
+      setFeedback({ kind: 'success', text: `Added ${product.name} (${selectedVariant.color}, ${selectedVariant.size}) to your cart.` });
+    } else if (result === 'login_required') {
+      setFeedback({ kind: 'login', text: 'Please log in to add items to your cart.' });
+    } else {
+      setFeedback({ kind: 'error', text: "Couldn't add that to your cart. Please try again." });
+    }
   };
-  console.log('Rendering with variant:', selectedVariant);
-  
+
   return (
-    <div className="container mx-auto p-2 sm:p-4">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        
+    <div className="container mx-auto px-4 py-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 md:gap-10">
+
         {/* --- IMAGE SECTION (updates dynamically) --- */}
-        <div className="relative w-full h-80">
-          <Image 
-            src={selectedVariant.image_url || '/placeholder.png'} 
+        <div className="relative h-72 w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-800 sm:h-96 md:h-[28rem]">
+          <Image
+            src={selectedVariant.image_url || '/placeholder.svg'}
             alt={`${product.name} - ${selectedVariant.color}`}
-            layout="fill"
-            objectFit="contain"
-            className="rounded-lg shadow-lg" 
+            fill
+            sizes="(max-width: 768px) 100vw, 50vw"
+            className="object-contain"
+            priority
           />
         </div>
 
         {/* --- DETAILS SECTION --- */}
         <div>
-          <h1 className="text-2xl font-bold mb-2">{product.name}</h1>
-          <p className="text-gray-400 mb-6">{product.description}</p>
-          
+          <h1 className="mb-2 text-2xl font-bold text-slate-100 sm:text-3xl">{product.name}</h1>
+          <p className="mb-6 leading-relaxed text-slate-300">{product.description}</p>
+
           {/* Color Selector */}
-          <div className="mb-4">
-            <h3 className="font-semibold mb-2">Color: <span className="font-normal">{selectedColor}</span></h3>
-            <div className="flex gap-2">
+          <div className="mb-5">
+            <h3 className="mb-2 text-sm font-semibold text-slate-200">
+              Color: <span className="font-normal text-slate-400">{selectedColor}</span>
+            </h3>
+            <div className="flex flex-wrap gap-3">
               {uniqueColors.map(color => (
-                <button 
-                  key={color} 
-                  onClick={() => 
-                    {console.log('--- CLICKED COLOR:', color, '---');
-                      setSelectedColor(color)}}
-                  className={`w-8 h-8 rounded-full border-2 transition-transform transform hover:scale-110 ${selectedColor === color ? 'border-blue-500' : 'border-gray-300'}`}
+                <button
+                  key={color}
+                  onClick={() => setSelectedColor(color)}
+                  className={`h-9 w-9 rounded-full border-2 transition-transform hover:scale-110 ${
+                    selectedColor === color
+                      ? 'border-indigo-400 ring-2 ring-indigo-400/40'
+                      : 'border-slate-600'
+                  }`}
                   style={{ backgroundColor: color.toLowerCase() }}
                   title={color}
+                  aria-label={`Color ${color}`}
+                  aria-pressed={selectedColor === color}
                 />
               ))}
             </div>
@@ -123,8 +140,10 @@ const finalPrice = hasDiscount
 
           {/* Size Selector */}
           <div className="mb-6">
-            <h3 className="font-semibold mb-2">Size: <span className="font-normal">{selectedSize}</span></h3>
-            <div className="flex gap-2 flex-wrap">
+            <h3 className="mb-2 text-sm font-semibold text-slate-200">
+              Size: <span className="font-normal text-slate-400">{selectedSize}</span>
+            </h3>
+            <div className="flex flex-wrap gap-2">
               {uniqueSizes.map(size => {
                 // Check if this size is available for the currently selected color
                 const isAvailable = product_variants.some(v => v.color === selectedColor && v.size === size);
@@ -133,7 +152,12 @@ const finalPrice = hasDiscount
                     key={size}
                     onClick={() => setSelectedSize(size)}
                     disabled={!isAvailable}
-                    className={`px-4 py-2 border rounded-md transition ${selectedSize === size ? 'bg-gray-900 text-white' : 'bg-white text-gray-800'} ${!isAvailable ? 'opacity-50 cursor-not-allowed' : 'hover:bg-gray-200'}`}
+                    aria-pressed={selectedSize === size}
+                    className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+                      selectedSize === size
+                        ? 'border-indigo-500 bg-indigo-600 text-white'
+                        : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    } ${!isAvailable ? 'cursor-not-allowed opacity-40' : ''}`}
                   >
                     {size}
                   </button>
@@ -143,39 +167,67 @@ const finalPrice = hasDiscount
           </div>
 
           {/* Price & Add to Cart Section (updates dynamically) */}
-         
-            <div className="flex items-center gap-4 mb-1">
-              <p className="text-m font-bold text-white-600">${finalPrice.toFixed(2)}</p>
-              {discount > 0 && (
-                <p className="text-m text-red-500 line-through">${originalPrice.toFixed(2)}</p>
-              )}
-            </div>
-            <p className="text-green-600 font-semibold mb-6">
-              {selectedVariant.stock > 0 ? `${selectedVariant.stock} in stock` : 'Out of stock'}
-            </p>
-            <button
-              onClick={handleAddToCart}
-              disabled={selectedVariant.stock === 0}
-              className="bg-blue-500 text-white px-4 py-1 rounded-lg font-bold hover:bg-blue-600 disabled:bg-gray-400"
+          <div className="mb-1 flex items-baseline gap-3">
+            <p className="text-3xl font-bold text-white">${finalPrice.toFixed(2)}</p>
+            {discount > 0 && (
+              <>
+                <p className="text-base text-slate-500 line-through">${originalPrice.toFixed(2)}</p>
+                <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-bold text-white">
+                  -{discount}%
+                </span>
+              </>
+            )}
+          </div>
+          <p className={`mb-6 text-sm font-semibold ${selectedVariant.stock > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+            {selectedVariant.stock > 0 ? `${selectedVariant.stock} in stock` : 'Out of stock'}
+          </p>
+
+          <button
+            onClick={handleAddToCart}
+            disabled={selectedVariant.stock === 0 || adding}
+            className="w-full rounded-xl bg-indigo-600 px-6 py-3 text-base font-semibold text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400 sm:w-auto"
+          >
+            {adding ? 'Adding…' : 'Add to cart'}
+          </button>
+
+          {feedback && (
+            <p
+              role="status"
+              className={`mt-4 rounded-lg border px-4 py-3 text-sm ${
+                feedback.kind === 'success'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+              }`}
             >
-              Add to Cart
-            </button>
-          
+              {feedback.text}{' '}
+              {feedback.kind === 'success' && (
+                <Link href="/cart" className="font-semibold underline underline-offset-4">
+                  View cart
+                </Link>
+              )}
+              {feedback.kind === 'login' && (
+                <Link href="/login" className="font-semibold underline underline-offset-4">
+                  Log in
+                </Link>
+              )}
+            </p>
+          )}
         </div>
+
         {/* --- SPECIFICATIONS SECTION --- */}
-{product.product_spec.length > 0 && (
-  <div className="mt-12">
-    <h2 className="text-xl font-bold mb-4">Specifications</h2>
-    <ul className="border-t border-gray-200">
-      {product.product_spec.map((spec) => (
-        <li key={spec.id} className="flex justify-between items-center py-3 border-b text-sm">
-          <span className="font-semibold text-gray-400">{spec.spec_name}</span>
-          <span className="text-gray-400 text-right">{spec.spec_value}</span>
-        </li>
-      ))}
-    </ul>
-  </div>
-)}
+        {product.product_spec.length > 0 && (
+          <div className="md:col-span-2">
+            <h2 className="mb-4 text-xl font-bold text-slate-100">Specifications</h2>
+            <ul className="border-t border-slate-800">
+              {product.product_spec.map((spec) => (
+                <li key={spec.id} className="flex items-start justify-between gap-4 border-b border-slate-800 py-3 text-sm">
+                  <span className="font-semibold text-slate-300">{spec.spec_name}</span>
+                  <span className="text-right text-slate-400">{spec.spec_value}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );

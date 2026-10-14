@@ -22,12 +22,13 @@ export type CartItem ={
   quantity: number;
   product_variants: ProductVariant;
 }
+export type AddToCartResult = 'added' | 'login_required' | 'error';
 // --- End of Types ---
 
 type CartContextType ={
   cart: CartItem[];
   loading: boolean;
-  addToCart: (variantId: number, productId: number) => Promise<void>;
+  addToCart: (variantId: number, productId: number) => Promise<AddToCartResult>;
   removeFromCart: (cartItemId: number) => Promise<void>;
   increaseQuantity: (cartItemId: number) => Promise<void>;
   decreaseQuantity: (cartItemId: number) => Promise<void>;
@@ -38,7 +39,7 @@ type CartContextType ={
 export const CartContext = createContext<CartContextType>({
   cart: [],
   loading: true,
-  addToCart: async () => {},
+  addToCart: async () => 'error',
   removeFromCart: async () => {},
   increaseQuantity: async () => {},
   decreaseQuantity: async () => {},
@@ -86,12 +87,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
   }, [supabase]);
 
   // CORRECTED FUNCTION: Takes a variantId and quantity
-  const addToCart = async (variantId: number, productId: number) => {
+  // Reports what actually happened so the caller can show a truthful message
+  // (previously a failed/logged-out add still looked like a success).
+  const addToCart = async (variantId: number, productId: number): Promise<AddToCartResult> => {
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      alert('Please log in to add items to your cart.');
-      return;
-    }
+    if (!user) return 'login_required';
 
     const { data: existingItem } = await supabase
       .from('cart_items')
@@ -106,14 +106,21 @@ export function CartProvider({ children }: { children: ReactNode }) {
         .from('cart_items')
         .update({ quantity: existingItem.quantity + 1 })
         .match({ id: existingItem.id });
-      if (error) console.error('Error updating cart:', error);
+      if (error) {
+        console.error('Error updating cart:', error);
+        return 'error';
+      }
     } else {
       const { error } = await supabase
         .from('cart_items')
         .insert({ user_id: user.id, product_variant_id: variantId, product_id:productId, quantity:1 }); // Use the correct column name
-      if (error) console.error('Error inserting into cart:', error);
+      if (error) {
+        console.error('Error inserting into cart:', error);
+        return 'error';
+      }
     }
     await fetchCart();
+    return 'added';
   };
   
   const removeFromCart = async (cartItemId: number) => {

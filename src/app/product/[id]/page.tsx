@@ -3,7 +3,8 @@
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-//import { notFound } from 'next/navigation';
+import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import ProductDetails from '@/components/ProductDetails'; // The component that displays the details
 
 export async function generateStaticParams() {
@@ -18,6 +19,23 @@ export async function generateStaticParams() {
     id: id.toString(),
   })) || [];
 }
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const supabase = createServerComponentClient({ cookies });
+  const { data } = await supabase
+    .from('products')
+    .select('name, description')
+    .eq('id', parseInt(id))
+    .single();
+
+  if (!data) return { title: 'Product not found' };
+  return { title: data.name, description: data.description?.slice(0, 160) };
+}
+
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const supabase = createServerComponentClient({ cookies });
   const { id } = await params;
@@ -33,8 +51,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     .eq('id', parseInt(id))
     .single();
 
-  // If the product doesn't exist or there was an error, show a 404 page.
- 
+  // Unknown id -> real 404 (status code + the styled not-found page).
+  if (!product) notFound();
+
   // Pass the complete, detailed product data to the client component for rendering.
   return <ProductDetails product={product} />;
 }

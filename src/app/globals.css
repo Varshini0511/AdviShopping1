@@ -33,3 +33,11 @@ body {
 html {
   scroll-behavior: smooth;
 }
+
+/* iOS Safari ignores/janks `background-attachment: fixed` and repaints the
+   whole gradient on scroll — use a normal scrolling background on small screens. */
+@media (max-width: 1023px) {
+  body {
+    background-attachment: scroll;
+  }
+}

@@ -2,9 +2,43 @@
 
 import { createServerComponentClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
+import Link from 'next/link';
 import ProductCard from '@/components/ProductCard';
 
 export const revalidate = 60; // Re-fetch data every 60 seconds
+
+// Queries chosen because they share no words with the products they find —
+// they only work because of semantic search.
+const EXAMPLE_QUERIES = [
+  'device to call someone',
+  'something to listen to music',
+  'book about building good habits',
+  'iPhone 15',
+];
+
+const CAPABILITIES = [
+  {
+    icon: '🔎',
+    title: 'Hybrid search',
+    body: 'Keyword + semantic retrieval, rank-fused, reranked by a cross-encoder. Every search shows its 6 stages.',
+    href: '/search?q=device%20to%20call%20someone',
+    cta: 'See it rank',
+  },
+  {
+    icon: '💬',
+    title: 'Shopping agent',
+    body: 'Open the chat in the corner and say “add a watch to my cart”. It calls real tools — and can’t invent products.',
+    href: '/login',
+    cta: 'Try the demo login',
+  },
+  {
+    icon: '📷',
+    title: 'Visual search',
+    body: 'Upload a photo and CLIP finds visually similar products in the catalog.',
+    href: '/visual-search',
+    cta: 'Upload an image',
+  },
+];
 
 export default async function Home() {
   const supabase = createServerComponentClient({ cookies });
@@ -18,11 +52,17 @@ export default async function Home() {
 
   if (error) {
     console.error('Error fetching products:', error);
-    return <p>Error loading products.</p>;
+    return (
+      <p className="container mx-auto px-4 py-16 text-center text-slate-400">
+        We couldn&apos;t load the catalog right now. Please refresh in a moment.
+      </p>
+    );
   }
 
   if (!products || products.length === 0) {
-    return <p>No products found.</p>;
+    return (
+      <p className="container mx-auto px-4 py-16 text-center text-slate-400">No products found.</p>
+    );
   }
 
   return (
@@ -38,13 +78,46 @@ export default async function Home() {
         />
         <div className="relative">
           <h1 className="text-2xl font-bold tracking-tight sm:text-4xl">
-            Everything you need, beautifully ranked.
+            Search that understands what you mean.
           </h1>
           <p className="mt-3 max-w-xl text-sm text-indigo-100 sm:text-base">
-            Smart hybrid search across electronics, fashion, books &amp; more — find it by name or
-            just describe it.
+            Describe what you need — not what it&apos;s called. Keyword and semantic retrieval,
+            fused and reranked, with a shopping agent that can act on your cart.
           </p>
+
+          <p className="mt-6 text-xs font-semibold uppercase tracking-wide text-indigo-200">
+            Try a search
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {EXAMPLE_QUERIES.map((q) => (
+              <Link
+                key={q}
+                href={`/search?q=${encodeURIComponent(q)}`}
+                className="rounded-full border border-white/25 bg-white/10 px-4 py-2 text-sm font-medium text-white backdrop-blur transition hover:bg-white/20"
+              >
+                {q}
+              </Link>
+            ))}
+          </div>
         </div>
+      </section>
+
+      {/* The three AI capabilities */}
+      <section className="mb-8 grid gap-3 sm:grid-cols-3">
+        {CAPABILITIES.map((c) => (
+          <div key={c.title} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+            <p className="text-sm font-semibold text-slate-100">
+              <span aria-hidden className="mr-2">{c.icon}</span>
+              {c.title}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-400">{c.body}</p>
+            {c.href && (
+              <Link href={c.href} className="mt-2 inline-block text-xs font-semibold text-indigo-400 hover:text-indigo-300">
+                {c.cta} →
+              </Link>
+            )}
+          </div>
+        ))}
       </section>
 
       {/* Category quick-links */}
@@ -55,13 +128,13 @@ export default async function Home() {
           { href: '/category/books', label: 'Books' },
           { href: '/category/accessories', label: 'Accessories' },
         ].map((c) => (
-          <a
+          <Link
             key={c.href}
             href={c.href}
             className="rounded-full border border-white/10 bg-slate-800/60 px-4 py-1.5 text-sm font-medium text-slate-300 transition hover:border-indigo-400/50 hover:text-white"
           >
             {c.label}
-          </a>
+          </Link>
         ))}
       </div>
 

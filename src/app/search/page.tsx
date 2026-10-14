@@ -1,9 +1,19 @@
 // src/app/search/page.tsx
 
+import type { Metadata } from 'next';
 import ProductCard from '@/components/ProductCard';
 import { runSearchPipeline, type SearchFilters } from '@/lib/search-pipeline';
 
 const CATEGORIES = ['Electronics', 'Dress', 'Books', 'Accessories'];
+
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams?: Promise<{ q?: string }>;
+}): Promise<Metadata> {
+  const q = (await searchParams)?.q?.trim();
+  return { title: q ? `“${q}”` : 'Search' };
+}
 
 export default async function SearchPage({
   searchParams,
@@ -21,8 +31,11 @@ export default async function SearchPage({
 
   if (!query) {
     return (
-      <div className="container mx-auto p-4 text-center">
-        <h1 className="text-3xl font-bold">Please enter a search term.</h1>
+      <div className="container mx-auto px-4 py-16 text-center">
+        <h1 className="text-2xl font-bold text-slate-100 sm:text-3xl">Please enter a search term.</h1>
+        <p className="mt-2 text-sm text-slate-400">
+          Try “device to call someone” or “book about building good habits”.
+        </p>
       </div>
     );
   }
@@ -56,7 +69,7 @@ export default async function SearchPage({
           <select
             name="category"
             defaultValue={filters.category ?? ''}
-            className="mt-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100"
+            className="mt-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-base text-slate-100 sm:text-sm"
           >
             <option value="">All</option>
             {CATEGORIES.map((c) => (
@@ -76,7 +89,7 @@ export default async function SearchPage({
             step="10"
             defaultValue={filters.maxPrice ?? ''}
             placeholder="any"
-            className="mt-1 w-28 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500"
+            className="mt-1 w-28 rounded-lg border border-slate-700 bg-slate-800 px-3 py-1.5 text-base text-slate-100 placeholder-slate-500 sm:text-sm"
           />
         </label>
 
@@ -134,7 +147,7 @@ export default async function SearchPage({
       )}
 
       {/* Pipeline transparency — the 6 stages */}
-      <details className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-4">
+      <details open className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-4">
         <summary className="cursor-pointer text-sm font-semibold text-slate-200">
           🔎 How these results were ranked (6-stage pipeline)
         </summary>

@@ -6,7 +6,11 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 type Message = { role: 'user' | 'assistant'; content: string };
 
 const STARTER =
-  "Hi! I can search products and add things to your cart or wishlist. Try typing — or tap the mic and say \"add a wireless headphone to my cart\".";
+  "Hi! I can search the catalog and add things to your cart or wishlist. Type a request, or tap the mic and speak it.";
+
+// One-tap prompts so a first-time visitor sees the agent work without having
+// to guess what it can do.
+const SUGGESTIONS = ['Something to listen to music', 'Add a watch to my cart', "What's in my cart?"];
 
 // The Web Speech API isn't in the standard TS DOM lib, so we describe the tiny
 // slice we use. It's browser-native (Chrome/Edge/Safari) — no dependency, no key.
@@ -76,9 +80,11 @@ export default function ChatWidget() {
   );
 
   // Accepts optional text so a voice transcript can be sent directly, without
-  // waiting on the async setState of `input`.
+  // waiting on the async setState of `input`. Replies are only spoken aloud
+  // when the user spoke (viaVoice) — a typed message shouldn't make the page
+  // start talking, e.g. when someone opens the demo in an office.
   const send = useCallback(
-    async (override?: string) => {
+    async (override?: string, viaVoice = false) => {
       const text = (override ?? input).trim();
       if (!text || loading) return;
       const next: Message[] = [...messages, { role: 'user', content: text }];
@@ -94,11 +100,11 @@ export default function ChatWidget() {
         const data = await res.json();
         const reply = data.reply || data.error || 'Something went wrong.';
         setMessages([...next, { role: 'assistant', content: reply }]);
-        speak(reply);
+        if (viaVoice) speak(reply);
       } catch {
         const reply = 'Sorry, I had trouble reaching the assistant.';
         setMessages([...next, { role: 'assistant', content: reply }]);
-        speak(reply);
+        if (viaVoice) speak(reply);
       } finally {
         setLoading(false);
       }
@@ -155,7 +161,7 @@ export default function ChatWidget() {
       recognitionRef.current = null;
       const text = transcriptRef.current.trim();
       if (text) {
-        void send(text);
+        void send(text, true);
       } else {
         setVoiceError((prev) => prev ?? "I didn't catch that — tap the mic and try again.");
       }
@@ -178,9 +184,9 @@ export default function ChatWidget() {
   }, [loading, send]);
 
   return (
-    <div className="fixed bottom-5 right-5 z-50">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col items-end sm:bottom-5 sm:right-5">
       {open && (
-        <div className="mb-3 flex h-[28rem] w-80 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50">
+        <div className="mb-3 flex h-[min(32rem,calc(100dvh-7rem))] w-[calc(100vw-2rem)] max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl shadow-black/50">
           <div className="flex items-center justify-between border-b border-slate-800 bg-slate-800/60 px-4 py-3">
             <span className="text-sm font-semibold text-slate-100">🛍️ Shopping Assistant</span>
             <div className="flex items-center gap-2">
@@ -205,7 +211,7 @@ export default function ChatWidget() {
             </div>
           </div>
 
-          <div className="flex-1 space-y-3 overflow-y-auto p-3">
+          <div className="flex-1 space-y-3 overflow-y-auto p-3" role="log" aria-live="polite">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -217,6 +223,19 @@ export default function ChatWidget() {
                 </div>
               </div>
             ))}
+            {messages.length === 1 && !loading && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => void send(s)}
+                    className="rounded-full border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-200 transition hover:bg-indigo-500/20"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
             {loading && (
               <div className="flex justify-start">
                 <div className="rounded-xl bg-slate-800 px-3 py-2 text-sm text-slate-400">Thinking…</div>
@@ -252,7 +271,7 @@ export default function ChatWidget() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && send()}
               placeholder={listening ? 'Listening…' : 'Add headphones to my cart…'}
-              className="flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40"
+              className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-base text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 sm:text-sm"
             />
             <button
               onClick={() => send()}

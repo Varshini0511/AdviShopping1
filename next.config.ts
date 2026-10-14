@@ -1,3 +1,13 @@
+// Hostname of the configured Supabase project, so Storage-hosted images are
+// allowed without hard-coding a project id into the repo.
+const supabaseHost = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_SUPABASE_URL ?? '').hostname;
+  } catch {
+    return null;
+  }
+})();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Keep the transformers library out of the bundler — it ships native
@@ -11,12 +21,16 @@ const nextConfig = {
     // RAM on a 512MB host.
     unoptimized: true,
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'lhwuknhgjmthkmxblpph.supabase.co', // Hostname from your error
-        port: '',
-        pathname: '/storage/v1/object/public/productimages/**',
-      },
+      ...(supabaseHost
+        ? [
+            {
+              protocol: 'https',
+              hostname: supabaseHost,
+              port: '',
+              pathname: '/storage/v1/object/public/**',
+            },
+          ]
+        : []),
       {
         protocol: 'https',
         hostname: 'picsum.photos', // seed images used in supabase/schema.sql

@@ -143,6 +143,14 @@ SUPABASE_SERVICE_KEY=...
 GROQ_API_KEY=...            # enables the agent + search summary
 REVALIDATION_TOKEN=...
 # GROQ_MODEL=qwen/qwen3.8-27b   # optional override (see Gotchas)
+
+# Optional: one-click "Try the demo" button on /login (shared public account).
+# Then run `node scripts/create-demo-user.mjs` once to create the user.
+NEXT_PUBLIC_DEMO_EMAIL=...
+NEXT_PUBLIC_DEMO_PASSWORD=...
+# Optional: absolute URL used for the link-preview (Open Graph) card.
+# Render sets RENDER_EXTERNAL_URL automatically.
+NEXT_PUBLIC_SITE_URL=https://your-app.onrender.com
 ```
 
 **4. Generate embeddings**
