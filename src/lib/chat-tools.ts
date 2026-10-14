@@ -7,6 +7,9 @@
 // "tool calling" format). Our code executes the action for real and reports
 // the result back. This is what keeps the agent GROUNDED: it can't claim an
 // item was added to the cart unless the tool actually did it.
+//
+// Token cost note: these schemas are re-sent on EVERY pass of the agent loop,
+// and the free tier is metered per minute — so keep descriptions short.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { generateEmbedding } from './embeddings';
@@ -16,8 +19,7 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'search_products',
-      description:
-        'Search the product catalog by name or description (keyword + semantic). Use this FIRST to find a product\'s id before adding it to a cart/wishlist.',
+      description: 'Search the catalog (keyword + semantic). Use first to get a product id.',
       parameters: {
         type: 'object',
         properties: {
@@ -31,12 +33,12 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'add_to_cart',
-      description: 'Add a specific product to the shopping cart. Requires a product_id from search_products.',
+      description: 'Add a product to the cart. Needs a product_id from search_products.',
       parameters: {
         type: 'object',
         properties: {
-          product_id: { type: 'number', description: 'The product id from search_products' },
-          quantity: { type: 'number', description: 'How many to add (default 1)' },
+          product_id: { type: 'number' },
+          quantity: { type: 'number', description: 'Default 1' },
         },
         required: ['product_id'],
       },
@@ -46,7 +48,7 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'add_to_wishlist',
-      description: 'Save a product to the wishlist for later browsing (not an immediate purchase intent).',
+      description: 'Save a product to the wishlist (browsing, no purchase intent).',
       parameters: {
         type: 'object',
         properties: { product_id: { type: 'number' } },
@@ -58,7 +60,7 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'save_for_later',
-      description: 'Save a product "for later" (stronger purchase intent than a wishlist, e.g. moved out of cart to buy another day).',
+      description: 'Save a product for later (stronger purchase intent than a wishlist).',
       parameters: {
         type: 'object',
         properties: { product_id: { type: 'number' } },
@@ -70,7 +72,7 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'view_cart',
-      description: "List what's currently in the user's cart.",
+      description: "List what's in the user's cart.",
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -78,13 +80,26 @@ export const TOOLS = [
     type: 'function',
     function: {
       name: 'view_saved',
-      description: 'List the user\'s wishlist and saved-for-later items.',
+      description: "List the user's wishlist and saved-for-later items.",
       parameters: { type: 'object', properties: {} },
     },
   },
 ] as const;
 
+// Tools that change data. After one of these succeeds (or fails) there is
+// nothing left for the model to decide, so the route can answer directly.
+export const WRITE_TOOLS = new Set(['add_to_cart', 'add_to_wishlist', 'save_for_later']);
+
+// Read-only views of the user's own data. Their output is complete and exact,
+// so the route can render it directly instead of asking the model to paraphrase.
+export const READ_TOOLS = new Set(['view_cart', 'view_saved']);
+
 type ToolArgs = Record<string, unknown>;
+
+async function productName(supabase: SupabaseClient, id: number): Promise<string | null> {
+  const { data } = await supabase.from('products').select('name').eq('id', id).maybeSingle();
+  return (data as { name?: string } | null)?.name ?? null;
+}
 
 // NOTE: "buy this now" intentionally does NOT process a payment — this app has
 // no payment gateway. add_to_cart is the correct tool for purchase intent; the
@@ -184,7 +199,13 @@ export async function executeTool(
       // Only claim success if the write actually succeeded — a silent write
       // failure must never be reported to the user as "added to your cart."
       if (writeError) return JSON.stringify({ error: `Could not add to cart: ${writeError.message}` });
-      return JSON.stringify({ success: true, product_id: productId, quantity, price: variant.price });
+      return JSON.stringify({
+        success: true,
+        product_id: productId,
+        name: await productName(supabase, productId),
+        quantity,
+        price: variant.price,
+      });
     }
 
     case 'add_to_wishlist':
@@ -197,7 +218,12 @@ export async function executeTool(
         .from('saved_items')
         .upsert({ user_id: userId, product_id: productId, kind }, { onConflict: 'user_id,product_id,kind' });
       if (error) return JSON.stringify({ error: error.message });
-      return JSON.stringify({ success: true, product_id: productId, kind });
+      return JSON.stringify({
+        success: true,
+        product_id: productId,
+        name: await productName(supabase, productId),
+        kind,
+      });
     }
 
     case 'view_cart': {
