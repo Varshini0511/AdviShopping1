@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createRouteHandlerClient } from '@supabase/auth-helpers-nextjs';
 import { cookies } from 'next/headers';
 import { TOOLS, WRITE_TOOLS, READ_TOOLS, executeTool } from '@/lib/chat-tools';
+import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -27,6 +28,9 @@ const MAX_STEPS = 5; // hard cap on the agent loop so a confused model can't spi
 // generation. The free tier's output-tokens-per-minute budget is small (1000
 // for this model), so an uncapped bad generation starves every later request.
 const MAX_OUTPUT_TOKENS = 400;
+// Per-visitor cap on chat messages. Generous for a human (each message is one
+// request) but stops a script from draining the shared Groq quota.
+const CHAT_REQUESTS_PER_MINUTE = 12;
 // Longest we'll sleep on a 429 before giving up and telling the user.
 const MAX_RATE_LIMIT_WAIT_MS = 10_000;
 
@@ -196,6 +200,11 @@ function groundedFallback(knownProducts: SearchedProduct[], searched: boolean): 
 }
 
 export async function POST(request: Request) {
+  // Per-IP limit, checked before any work (or any Groq spend) happens. Note this
+  // is separate from Groq's own account-wide limit handled further down.
+  const limited = rateLimit(`chat:${clientIp(request)}`, CHAT_REQUESTS_PER_MINUTE, 60_000);
+  if (!limited.ok) return tooManyRequests(limited.retryAfterSec);
+
   try {
     const { messages } = (await request.json()) as { messages: ChatMessage[] };
     if (!Array.isArray(messages) || messages.length === 0) {

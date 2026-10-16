@@ -123,6 +123,7 @@ direct reply built from the tool result:  "Added Smart Fitness Watch ($149.00) t
 | **Forced tool use** | The first step requires a tool call (`tool_choice: required`, with a fallback to `auto` if a provider rejects it), so the model can't answer from its own memory. |
 | **Bounded loop and output** | `MAX_STEPS = 5`, `max_tokens = 400`. |
 | **Input hygiene** | Only the last 6 `user`/`assistant` turns (600 chars each) are accepted; client-supplied `system`/`tool` messages are dropped. |
+| **Per-visitor limit** | `/api/chat` allows 12 requests/min per IP and returns `429` + `Retry-After` beyond that, before any model call is made. |
 | **Rate-limit handling** | A Groq 429 with a short `retry-after` is waited out and retried; otherwise the user gets a clear "busy, try again" message. Transient `tool_use_failed` generations are retried up to 3 times. |
 | **Observability** | One log line per step with the tool called and token usage: `step 1: tool_calls=add_to_cart tokens(in/out)=1231/28`. |
 
@@ -318,6 +319,7 @@ node scripts/create-demo-user.mjs
 | `NEXT_PUBLIC_SITE_URL` | optional | Absolute URL for share-card links (Render sets `RENDER_EXTERNAL_URL` automatically) |
 | `DISABLE_RERANKER` | optional | `true` skips stage 5 (saves ~80 MB RAM) |
 | `DISABLE_VISUAL_SEARCH` | optional | `true` makes `/api/image-search` return 503 (saves ~150 MB) |
+| `DISABLE_CSP` | optional, **build time** | `true` omits the `Content-Security-Policy` header — a diagnostic escape hatch only; leave unset in production |
 
 `NEXT_PUBLIC_*` values are baked in **at build time** — change one and you must rebuild/redeploy.
 
@@ -369,6 +371,10 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 - The agent's **auth boundary** is the session cookie; the model can't name a user.
 - **Secrets stay out of git** — `.env*` is ignored. Rotate any key that has been pasted into a chat or log.
 - Demo credentials are public by design; the shared account holds nothing sensitive and is reset each session.
+- **Rate limiting** — `/api/chat` (12 requests/min) and `/api/image-search` (10 requests/min) are limited per client IP and return `429` with a `Retry-After` header, so a script can't drain the Groq quota or the host's CPU.
+- **Upload validation** — image search accepts only JPG/PNG/WebP up to 5 MB; oversized requests are rejected from `Content-Length` *before* the body is buffered, and re-checked after parsing. The same rules run client-side for a faster message.
+- **Security headers** — `Content-Security-Policy` (restricts script/connection/frame/form targets; `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (microphone for voice only), and HSTS.
+- **No internal data leakage** — list and detail pages select explicit columns, so embedding vectors (~6 KB each) never reach the browser. This also cut the home page from ~488 KB to ~115 KB.
 
 ---
 
@@ -377,6 +383,8 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 | Symptom | Cause | Fix |
 |---|---|---|
 | Chat says *"assistant is busy (free-tier rate limit)"* | Groq's per-minute token limit | Wait a few seconds; consider a paid tier or a different `GROQ_MODEL` |
+| *"You're sending requests too quickly"* | The app's own per-IP limit (chat 12/min, image search 10/min) | Wait for the `Retry-After` interval |
+| Image search says *"Unsupported file type"* / *"too large"* | Upload validation | Use a JPG, PNG or WebP under 5 MB |
 | `Chat agent request failed`, logs show `model_not_found` | Groq retired the model | Set `GROQ_MODEL` to a current model — no code change |
 | Wishlist / save-for-later fail | `saved_items` table missing | Run `supabase/wishlist.sql` |
 | **Email not confirmed** on sign-in | Supabase *Confirm email* is on | Click the emailed link / use **Resend**, or turn off *Confirm email* |
@@ -405,14 +413,17 @@ Stated plainly, because they matter:
 - **No `remove_from_cart` tool** in the agent yet (the cart page can remove items).
 - **Shared demo account** — two visitors using it at the same moment see the same cart.
 - **Free-tier LLM limits** — a handful of agent messages per minute for the whole deployment.
-- **Image upload has no size or type cap** and the search endpoints are unauthenticated and un-rate-limited.
+- **Rate limiting is in-memory.** It's per server instance, resets on restart, and keys on proxy-supplied client IPs (which can be spoofed). Fine for a single-instance demo; a multi-instance deployment needs a shared store such as Redis.
+- **The CSP still allows `'unsafe-inline'` scripts/styles**, because Next.js emits inline bootstrap scripts. A nonce-based policy would remove that.
+- **The search and chat endpoints are public** (no login required); they are protected by per-IP rate limits and upload validation, not by authentication.
 - **No automated tests or CI yet.** Logic was verified manually and with the evaluation harness.
 
 ---
 
 ## Roadmap
 
-- Per-IP rate limiting on `/api/chat` and `/api/image-search`; upload size/type validation
+- Shared rate-limit store (Redis/Upstash) and a nonce-based CSP without `'unsafe-inline'`
+- "Forgot password" flow and CAPTCHA/bot protection on sign-up
 - Unit tests for the pure logic (RRF fusion, grounding check, price parsing) and a CI workflow
 - `remove_from_cart` and quantity-change tools for the agent
 - Larger, noisier catalog to make the retrieval ablation more informative

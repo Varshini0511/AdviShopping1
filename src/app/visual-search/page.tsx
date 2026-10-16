@@ -5,6 +5,9 @@ import { useState } from 'react';
 import Image from 'next/image';
 import ProductCard, { type Product } from '@/components/ProductCard';
 
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_BYTES = 5 * 1024 * 1024;
+
 export default function VisualSearchPage() {
   const [preview, setPreview] = useState<string | null>(null);
   const [results, setResults] = useState<Product[]>([]);
@@ -14,7 +17,25 @@ export default function VisualSearchPage() {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-selecting the same file after an error
     if (!file) return;
+
+    // Same rules the server enforces — checked here first for a faster, clearer
+    // message (the server re-validates; never trust the client alone).
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      setSearched(true);
+      setResults([]);
+      setPreview(null);
+      setError('Please choose a JPG, PNG or WebP image.');
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setSearched(true);
+      setResults([]);
+      setPreview(null);
+      setError('That image is too large — please choose one under 5 MB.');
+      return;
+    }
 
     setPreview(URL.createObjectURL(file));
     setLoading(true);
@@ -47,8 +68,13 @@ export default function VisualSearchPage() {
       <label className="mt-5 flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-8 text-center transition hover:border-indigo-400/60">
         <span className="text-3xl">📷</span>
         <span className="text-sm font-medium text-slate-200">Click to upload an image</span>
-        <span className="text-xs text-slate-500">JPG, PNG or WebP</span>
-        <input type="file" accept="image/*" onChange={handleFile} className="hidden" />
+        <span className="text-xs text-slate-500">JPG, PNG or WebP · up to 5 MB</span>
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={handleFile}
+          className="hidden"
+        />
       </label>
 
       {/* Query preview */}
