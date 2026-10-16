@@ -25,13 +25,12 @@ honest about its limits (the README has a "Known limitations" section — keep i
 ## 2. Current status (snapshot)
 
 - Branch `main`, remote `https://github.com/Varshini0511/AdviShopping1.git`.
-- Last commit **pushed** to GitHub: **`c7a206e` Expand README**.
-- Local `main` is **4 commits ahead of `origin/main` and NOT pushed yet** (check with `git status -sb`):
-  - `183bbbf` Handle expired/invalid email confirmation links (callback route + login page)
-  - `4afd709` Stop shipping embedding vectors to the browser (explicit column selects; see §9)
-  - `70c0446` Harden public endpoints: rate limiting, upload validation, security headers (+ README)
-  - `<this commit>` Add AGENTS.md / CLAUDE.md handoff
-  Working tree was clean after these commits.
+- Everything is committed and **pushed**; `main` matches `origin/main` (verify with `git status -sb`).
+- **Live:** https://advishopping1.onrender.com (Render free tier, deployed from `main`). Verified live: security
+  headers present, home page ~115 KB with 0 embedding strings, search works (~6 s first request), chat agent
+  answers browse queries and returns the login message for logged-out writes, OG image served.
+- **Not live yet:** the **Try the demo** button — `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` are not set on Render
+  (they are build-time, so set them and clear-cache redeploy). The demo user also still has to be created.
 - **Done & working:** hybrid search, filters, agent (+voice), visual search, evaluation, sign-up / sign-in /
   demo login, mobile + laptop layouts, OG share card + favicon, error/404 pages, rate limiting, upload
   validation, security headers.
@@ -44,7 +43,7 @@ honest about its limits (the README has a "Known limitations" section — keep i
 |---|---|
 | Create the demo user | `node scripts/create-demo-user.mjs` (needs `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` in `.env.local`). Not yet run. Demo email is `demo@advishopping.app`; password is in `.env.local` only. |
 | Rebuild after env change | `NEXT_PUBLIC_*` values are baked at build time. |
-| Deploy / verify on Render | Confirm it goes Live; set **all** env vars (incl. demo vars) before build. |
+| Render env vars | Add `NEXT_PUBLIC_DEMO_EMAIL`, `NEXT_PUBLIC_DEMO_PASSWORD` (and `DISABLE_RERANKER=true` on the 512 MB tier), then **Manual Deploy → Clear build cache & deploy**. |
 | Supabase URL config | Add site URL and `<site>/callback` under Authentication → URL Configuration. |
 | Email confirmation | Currently **ON** in Supabase (`email_autoconfirm:false`). For a frictionless demo, turn off "Confirm email". |
 | Rotate the Groq key | It was pasted into chat in plaintext. Rotate at console.groq.com, update `.env.local` and Render. |
@@ -223,7 +222,7 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 
 ## 10. Known issues / TODO (prioritized)
 
-1. **Push the 4 local commits** (`git push origin main`), then redeploy on Render.
+1. Set the demo env vars on Render and create the demo user (see Outstanding table above).
 2. **Cart badge doesn't refresh after the agent adds items** — the agent writes server-side; `CartContext` isn't notified. Fix: expose a `refresh()` in `CartContext` and call it after write/read tool replies in `ChatWidget`.
 3. **`saved_items` lacks an UPDATE RLS policy** while `executeTool` uses `upsert(onConflict …)`; re-saving an existing item may be rejected (unverified). Add an `update` policy to `wishlist.sql` or switch to insert-ignore.
 4. **No `remove_from_cart` / change-quantity tool** for the agent.
@@ -243,7 +242,8 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 2. `/search?q=device to call someone` → phones; pipeline panel shows stage 1 = 0 hits, stage 2 = phones.
 3. Chat (logged in): "add speaker to cart" → `Added Portable Bluetooth Speaker ($59.99) to your cart.`; "what's in my cart" → list + total; log shows tokens per step.
 4. Rate limit: 15 rapid `POST /api/chat` with `{}` → `400 ×12` then `429`.
-5. Upload: text file to `/api/image-search` → 415; >5 MB → 413.
+5. Missing product (`/product/99999`): styled not-found page + `noindex`, but HTTP **200** (a soft 404 — streaming from `loading.tsx` sends the status before `notFound()` runs). Unknown routes return a real 404.
+5b. Upload: text file to `/api/image-search` → 415; >5 MB → 413.
 6. Headers: `curl -sI /` shows CSP, `X-Frame-Options`, etc. Home HTML < ~150 KB and contains **0** occurrences of `embedding`.
 7. RLS: anon REST call to `/rest/v1/cart_items` returns `[]`.
 8. Mobile: 375 px viewport, no horizontal overflow, hamburger works, chat fits.

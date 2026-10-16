@@ -6,8 +6,9 @@ A full-stack e-commerce demo built around three AI capabilities that go well bey
 2. **Conversational shopping agent** — an LLM that *takes real actions* through tool calling (search, add to cart, wishlist, view cart), guarded by a code-level grounding check so it can't invent products or prices. Supports voice in and out.
 3. **Visual search** — upload a photo and find visually similar products with CLIP image embeddings.
 
-> **Live demo:** _add your deployed URL here_
-> Browsing and search are public. Use **Try the demo** (or sign up) to use the cart and the agent.
+> **Live demo:** https://advishopping1.onrender.com
+> Hosted on a free tier, so the first visit after idle can take up to a minute to wake up.
+> Browsing and search are public. Sign up (or use the one-click demo login when it is enabled) to use the cart and the agent.
 
 Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgvector + Auth) · Transformers.js · Groq**.
 
@@ -243,7 +244,7 @@ src/
   app/
     page.tsx                  home: hero, example queries, catalog
     search/                   search results + pipeline panel (+ loading.tsx)
-    product/[id]/             product detail (static params, real 404s)
+    product/[id]/             product detail (static params, styled not-found page)
     category/[categoryName]/  category listing
     visual-search/            image upload UI
     cart/  (auth)/login/      cart, sign in / sign up / demo
