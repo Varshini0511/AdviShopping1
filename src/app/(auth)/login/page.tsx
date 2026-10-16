@@ -1,7 +1,7 @@
 // src/app/(auth)/login/page.tsx
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
@@ -18,18 +18,36 @@ const inputClass =
 
 type Mode = 'signin' | 'signup';
 
+const EXPIRED_LINK_MESSAGE =
+  'That confirmation link is invalid, expired or was already used (each link works once, for about an hour, and a newer email replaces older ones). Enter your email below and press Resend for a fresh one.';
+
 function AuthForm() {
   const params = useSearchParams();
   const [mode, setMode] = useState<Mode>(params.get('mode') === 'signup' ? 'signup' : 'signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // /callback sends us here with ?confirmed=1 (email verified, but this browser
+  // couldn't complete the session) or ?authError=… (bad/expired link).
+  const authError = params.get('authError');
+  const [error, setError] = useState<string | null>(authError ? EXPIRED_LINK_MESSAGE : null);
+  const [notice, setNotice] = useState<string | null>(
+    params.get('confirmed') === '1' ? 'Your email is confirmed — sign in below.' : null
+  );
   const [busy, setBusy] = useState(false);
-  // Set when sign-in fails only because the email link hasn't been clicked yet,
-  // so we can offer to resend it instead of just showing a raw error.
-  const [needsConfirm, setNeedsConfirm] = useState(false);
+  // Set when sign-in fails only because the email link hasn't been clicked yet
+  // (or the link was bad), so we can offer to resend it.
+  const [needsConfirm, setNeedsConfirm] = useState(Boolean(authError));
   const supabase = createClientComponentClient();
+
+  // Some link errors arrive in the URL fragment (#error_code=otp_expired), which
+  // the server never sees — read them client-side too.
+  useEffect(() => {
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    if (hash.get('error_code') || hash.get('error')) {
+      setError(EXPIRED_LINK_MESSAGE);
+      setNeedsConfirm(true);
+    }
+  }, []);
 
   const isSignup = mode === 'signup';
 
@@ -115,6 +133,10 @@ function AuthForm() {
   }
 
   async function resendConfirmation() {
+    if (!email.trim()) {
+      setError('Enter your email address above first, then press Resend.');
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
