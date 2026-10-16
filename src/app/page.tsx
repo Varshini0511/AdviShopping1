@@ -47,7 +47,12 @@ export default async function Home() {
   // the cart (so portfolio visitors aren't blocked by a sign-in wall).
   const { data: products, error } = await supabase
     .from('products')
-    .select('*, product_variants(price)')
+    // Explicit columns, NOT '*': products also holds two embedding vectors
+    // (~6 KB each) that would otherwise be serialized into every card's props
+    // and shipped to the browser — ~400 KB of dead weight on this page.
+    .select(
+      'id, name, description, image_url, stock, bestseller, rating, review_count, discount_percent, product_variants(price)'
+    )
     .order('created_at', { ascending: true });
 
   if (error) {

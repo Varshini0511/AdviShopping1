@@ -34,7 +34,10 @@ export default async function CategoryPage({
 
    const { data: products, error } = await supabase
     .from('products')
-    .select('*, category!inner(*), product_variants(price)')
+    // Explicit columns, NOT '*' — see the note in src/app/page.tsx (embeddings).
+    .select(
+      'id, name, description, image_url, stock, bestseller, rating, review_count, discount_percent, category!inner(category_name), product_variants(price)'
+    )
     .eq('category.category_name', categoryNamee);
 
   if (error) {

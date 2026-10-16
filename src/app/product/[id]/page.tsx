@@ -43,8 +43,10 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   // This query fetches the base product and ALL of its related variants and specifications in one go.
   const { data: product } = await supabase
     .from('products')
+    // Explicit product columns, NOT '*': the row also holds embedding vectors
+    // that ProductDetails (a client component) would otherwise ship to the browser.
     .select(`
-      *,
+      id, name, description,
       product_variants(*),
       product_spec(*)
     `)
