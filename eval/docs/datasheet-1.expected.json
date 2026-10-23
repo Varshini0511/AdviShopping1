@@ -1,0 +1,42 @@
+{
+  "type": "datasheet",
+  "data": {
+    "product_name": "Aurora X1 Smartphone",
+    "manufacturer": "Lumen Mobile",
+    "model": "AX1-256",
+    "category": "Smartphone",
+    "price": 649,
+    "currency": "USD",
+    "specs": [
+      {
+        "name": "Display",
+        "value": "6.4-inch AMOLED, 120 Hz"
+      },
+      {
+        "name": "Processor",
+        "value": "OctaCore 3.1 GHz"
+      },
+      {
+        "name": "Memory",
+        "value": "8 GB RAM / 256 GB storage"
+      },
+      {
+        "name": "Camera",
+        "value": "50 MP main + 12 MP ultrawide"
+      },
+      {
+        "name": "Battery",
+        "value": "4,800 mAh"
+      },
+      {
+        "name": "Weight",
+        "value": "186 g"
+      }
+    ],
+    "features": [
+      "Fast charging 45 W",
+      "IP68 water resistance",
+      "5G"
+    ]
+  }
+}

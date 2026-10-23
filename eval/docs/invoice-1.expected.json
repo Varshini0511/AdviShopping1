@@ -1,0 +1,33 @@
+{
+  "type": "invoice",
+  "data": {
+    "vendor": "Northwind Supplies Ltd",
+    "invoice_number": "INV-2025-0412",
+    "invoice_date": "2025-03-14",
+    "due_date": "2025-04-13",
+    "currency": "USD",
+    "line_items": [
+      {
+        "description": "Ergonomic office chair",
+        "quantity": 2,
+        "unit_price": 189,
+        "amount": 378
+      },
+      {
+        "description": "Standing desk converter",
+        "quantity": 1,
+        "unit_price": 249.5,
+        "amount": 249.5
+      },
+      {
+        "description": "USB-C docking station",
+        "quantity": 3,
+        "unit_price": 79.99,
+        "amount": 239.97
+      }
+    ],
+    "subtotal": 867.47,
+    "tax": 69.4,
+    "total": 936.87
+  }
+}

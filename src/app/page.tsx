@@ -38,6 +38,13 @@ const CAPABILITIES = [
     href: '/visual-search',
     cta: 'Upload an image',
   },
+  {
+    icon: '📄',
+    title: 'Document AI',
+    body: 'Extract structured data from invoices, receipts and datasheets — validated and cross-checked.',
+    href: '/extract',
+    cta: 'Try a sample',
+  },
 ];
 
 export default async function Home() {
@@ -108,7 +115,7 @@ export default async function Home() {
       </section>
 
       {/* The three AI capabilities */}
-      <section className="mb-8 grid gap-3 sm:grid-cols-3">
+      <section className="mb-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {CAPABILITIES.map((c) => (
           <div key={c.title} className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
             <p className="text-sm font-semibold text-slate-100">

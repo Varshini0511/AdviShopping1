@@ -1,0 +1,45 @@
+{
+  "type": "invoice",
+  "data": {
+    "vendor": "Harbor Freight Logistics",
+    "invoice_number": "HFL-30019",
+    "invoice_date": "2025-09-21",
+    "due_date": "2025-10-21",
+    "currency": "USD",
+    "line_items": [
+      {
+        "description": "Pallet shipping - Zone 3",
+        "quantity": 4,
+        "unit_price": 112.4,
+        "amount": 449.6
+      },
+      {
+        "description": "Fuel surcharge",
+        "quantity": 1,
+        "unit_price": 38.25,
+        "amount": 38.25
+      },
+      {
+        "description": "Liftgate service",
+        "quantity": 2,
+        "unit_price": 25,
+        "amount": 50
+      },
+      {
+        "description": "Insurance (declared value)",
+        "quantity": 1,
+        "unit_price": 17.8,
+        "amount": 17.8
+      },
+      {
+        "description": "Residential delivery fee",
+        "quantity": 3,
+        "unit_price": 9.5,
+        "amount": 28.5
+      }
+    ],
+    "subtotal": 584.15,
+    "tax": null,
+    "total": 584.15
+  }
+}

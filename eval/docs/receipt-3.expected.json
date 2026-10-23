@@ -1,0 +1,24 @@
+{
+  "type": "receipt",
+  "data": {
+    "merchant": "Pixel & Print Studio",
+    "date": "2025-10-02",
+    "currency": "GBP",
+    "payment_method": "MASTERCARD ****1881",
+    "line_items": [
+      {
+        "description": "Poster print A2",
+        "quantity": 3,
+        "amount": 36
+      },
+      {
+        "description": "Mounting board",
+        "quantity": 2,
+        "amount": 11
+      }
+    ],
+    "subtotal": 47,
+    "tax": 9.4,
+    "total": 56.4
+  }
+}

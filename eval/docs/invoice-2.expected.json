@@ -1,0 +1,27 @@
+{
+  "type": "invoice",
+  "data": {
+    "vendor": "Bluewave Consulting GmbH",
+    "invoice_number": "RE-7781",
+    "invoice_date": "2025-06-02",
+    "due_date": null,
+    "currency": "EUR",
+    "line_items": [
+      {
+        "description": "Data pipeline audit (hours)",
+        "quantity": 12,
+        "unit_price": 95,
+        "amount": 1140
+      },
+      {
+        "description": "Workshop facilitation",
+        "quantity": 1,
+        "unit_price": 650,
+        "amount": 650
+      }
+    ],
+    "subtotal": 1790,
+    "tax": 340.1,
+    "total": 2130.1
+  }
+}

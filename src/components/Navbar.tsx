@@ -7,7 +7,7 @@ import { useContext, useEffect, useState } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 import { useRouter } from 'next/navigation';
 import type { User } from '@supabase/supabase-js';
-import { FiCamera, FiMenu, FiSearch, FiShoppingCart, FiX } from 'react-icons/fi';
+import { FiCamera, FiFileText, FiMenu, FiSearch, FiShoppingCart, FiX } from 'react-icons/fi';
 
 const NAV_LINKS = [
   { href: '/', label: 'Home' },
@@ -78,6 +78,9 @@ export default function Navbar() {
           ))}
           <Link href="/visual-search" className={`${linkClass} inline-flex items-center gap-1.5`}>
             <FiCamera aria-hidden /> Visual search
+          </Link>
+          <Link href="/extract" className={`${linkClass} inline-flex items-center gap-1.5`}>
+            <FiFileText aria-hidden /> Documents
           </Link>
         </div>
 
@@ -172,6 +175,13 @@ export default function Navbar() {
               className="inline-flex items-center gap-2 rounded-lg px-2 py-3 text-base font-medium text-slate-200 hover:bg-slate-800"
             >
               <FiCamera aria-hidden /> Visual search
+            </Link>
+            <Link
+              href="/extract"
+              onClick={() => setMenuOpen(false)}
+              className="inline-flex items-center gap-2 rounded-lg px-2 py-3 text-base font-medium text-slate-200 hover:bg-slate-800"
+            >
+              <FiFileText aria-hidden /> Documents
             </Link>
           </div>
         </div>

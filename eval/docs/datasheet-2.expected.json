@@ -1,0 +1,41 @@
+{
+  "type": "datasheet",
+  "data": {
+    "product_name": "Zephyr 14 Ultrabook",
+    "manufacturer": "Nimbus Computing",
+    "model": "ZP14-R7",
+    "category": "Laptop",
+    "price": 1199,
+    "currency": "USD",
+    "specs": [
+      {
+        "name": "Display",
+        "value": "14-inch IPS, 2.8K"
+      },
+      {
+        "name": "Processor",
+        "value": "Ryzen 7 7840U"
+      },
+      {
+        "name": "Memory",
+        "value": "16 GB LPDDR5 / 1 TB SSD"
+      },
+      {
+        "name": "Battery",
+        "value": "Up to 18 hours"
+      },
+      {
+        "name": "Weight",
+        "value": "1.2 kg"
+      },
+      {
+        "name": "Ports",
+        "value": "2x USB-C, 1x HDMI, headphone jack"
+      }
+    ],
+    "features": [
+      "Backlit keyboard",
+      "Fingerprint reader"
+    ]
+  }
+}

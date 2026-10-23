@@ -1,0 +1,38 @@
+{
+  "type": "datasheet",
+  "data": {
+    "product_name": "Studio Pro ANC Headphones",
+    "manufacturer": "Sonique Audio",
+    "model": "SP-700",
+    "category": "Headphones",
+    "price": null,
+    "currency": null,
+    "specs": [
+      {
+        "name": "Driver",
+        "value": "40 mm dynamic"
+      },
+      {
+        "name": "Frequency response",
+        "value": "10 Hz - 40 kHz"
+      },
+      {
+        "name": "Battery",
+        "value": "40 hours (ANC on)"
+      },
+      {
+        "name": "Connectivity",
+        "value": "Bluetooth 5.3, 3.5 mm"
+      },
+      {
+        "name": "Weight",
+        "value": "265 g"
+      }
+    ],
+    "features": [
+      "Active noise cancellation",
+      "Multipoint pairing",
+      "Foldable design"
+    ]
+  }
+}

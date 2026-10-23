@@ -1,0 +1,39 @@
+{
+  "type": "receipt",
+  "data": {
+    "merchant": "GREENLEAF GROCERS",
+    "date": "2025-07-19",
+    "currency": "USD",
+    "payment_method": "CASH",
+    "line_items": [
+      {
+        "description": "Bananas 1.2kg",
+        "quantity": 1,
+        "amount": 1.8
+      },
+      {
+        "description": "Oat milk",
+        "quantity": 2,
+        "amount": 6.4
+      },
+      {
+        "description": "Sourdough loaf",
+        "quantity": 1,
+        "amount": 4.25
+      },
+      {
+        "description": "Free-range eggs",
+        "quantity": 1,
+        "amount": 5.1
+      },
+      {
+        "description": "Basil plant",
+        "quantity": 1,
+        "amount": 3.99
+      }
+    ],
+    "subtotal": 21.54,
+    "tax": null,
+    "total": 21.54
+  }
+}

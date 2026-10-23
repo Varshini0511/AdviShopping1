@@ -1,0 +1,34 @@
+{
+  "type": "invoice",
+  "expect_review": true,
+  "data": {
+    "vendor": "Summit Office Supply",
+    "invoice_number": "INV-9921",
+    "invoice_date": "2025-08-08",
+    "due_date": "2025-09-07",
+    "currency": "USD",
+    "line_items": [
+      {
+        "description": "Printer paper (case)",
+        "quantity": 5,
+        "unit_price": 42,
+        "amount": 210
+      },
+      {
+        "description": "Toner cartridge",
+        "quantity": 2,
+        "unit_price": 89.5,
+        "amount": 179
+      },
+      {
+        "description": "Heavy-duty stapler",
+        "quantity": 1,
+        "unit_price": 14.25,
+        "amount": 14.25
+      }
+    ],
+    "subtotal": 403.25,
+    "tax": 32.26,
+    "total": 453.51
+  }
+}

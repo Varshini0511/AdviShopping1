@@ -1,0 +1,24 @@
+{
+  "type": "receipt",
+  "data": {
+    "merchant": "CORNER CAFE",
+    "date": "2025-05-03",
+    "currency": "USD",
+    "payment_method": "VISA ****4242",
+    "line_items": [
+      {
+        "description": "Latte",
+        "quantity": 2,
+        "amount": 9
+      },
+      {
+        "description": "Croissant",
+        "quantity": 1,
+        "amount": 3.5
+      }
+    ],
+    "subtotal": 12.5,
+    "tax": 1,
+    "total": 13.5
+  }
+}
