@@ -3,7 +3,9 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 
-type Message = { role: 'user' | 'assistant'; content: string };
+// One Thought → Action → Observation step of the agent's ReAct loop (from /api/chat).
+type Step = { thought?: string; action: string; observation: string };
+type Message = { role: 'user' | 'assistant'; content: string; steps?: Step[] };
 
 const STARTER =
   "Hi! I can search the catalog and add things to your cart or wishlist. Type a request, or tap the mic and speak it.";
@@ -95,11 +97,12 @@ export default function ChatWidget() {
         const res = await fetch('/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ messages: next }),
+          // Send only role + content — the reasoning trace is display-only.
+          body: JSON.stringify({ messages: next.map(({ role, content }) => ({ role, content })) }),
         });
         const data = await res.json();
         const reply = data.reply || data.error || 'Something went wrong.';
-        setMessages([...next, { role: 'assistant', content: reply }]);
+        setMessages([...next, { role: 'assistant', content: reply, steps: data.steps }]);
         if (viaVoice) speak(reply);
       } catch {
         const reply = 'Sorry, I had trouble reaching the assistant.';
@@ -214,12 +217,41 @@ export default function ChatWidget() {
           <div className="flex-1 space-y-3 overflow-y-auto p-3" role="log" aria-live="polite">
             {messages.map((m, i) => (
               <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div
-                  className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${
-                    m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-100'
-                  }`}
-                >
-                  {m.content}
+                <div className="flex max-w-[85%] flex-col items-start gap-1.5">
+                  <div
+                    className={`whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed ${
+                      m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-100'
+                    }`}
+                  >
+                    {m.content}
+                  </div>
+
+                  {/* The ReAct trace: what the agent thought, did and saw. */}
+                  {m.steps && m.steps.length > 0 && (
+                    <details className="w-full rounded-lg border border-slate-700/70 bg-slate-900/60 px-2.5 py-1.5 text-xs text-slate-400">
+                      <summary className="cursor-pointer select-none text-slate-300">
+                        How I got this · {m.steps.length} step{m.steps.length > 1 ? 's' : ''}
+                      </summary>
+                      <ol className="mt-2 space-y-2">
+                        {m.steps.map((s, j) => (
+                          <li key={j} className="border-l-2 border-indigo-500/40 pl-2">
+                            {s.thought && (
+                              <p>
+                                <span className="font-semibold text-slate-300">Thought:</span> {s.thought}
+                              </p>
+                            )}
+                            <p>
+                              <span className="font-semibold text-indigo-300">Action:</span>{' '}
+                              <code className="break-all text-slate-300">{s.action}</code>
+                            </p>
+                            <p>
+                              <span className="font-semibold text-emerald-300">Observation:</span> {s.observation}
+                            </p>
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
                 </div>
               </div>
             ))}

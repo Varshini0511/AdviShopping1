@@ -23,7 +23,10 @@ const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 // (llama-3.3-70b-versatile started returning 404 model_not_found). Override with
 // GROQ_MODEL if this one is retired too — check https://console.groq.com/docs/models
 const MODEL = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
-const MAX_STEPS = 5; // hard cap on the agent loop so a confused model can't spin forever
+// Hard cap on the agent loop so a confused model can't spin forever. A
+// "find the best X and add it" request uses 4 passes (search → compare details →
+// add → explain), so leave headroom above that.
+const MAX_STEPS = 6;
 // Replies are 1-3 sentences or a short tool call; anything longer is a runaway
 // generation. The free tier's output-tokens-per-minute budget is small (1000
 // for this model), so an uncapped bad generation starves every later request.
@@ -49,10 +52,13 @@ function parseRetryAfterMs(res: Response, body: string): number | null {
 // per minute). Same rules as before, fewer words.
 const SYSTEM_PROMPT = `You are the AdviShopping shopping assistant in the store's chat widget. You can search the catalog and manage the user's cart, wishlist and saved-for-later list ONLY through the provided tools. Never claim an action succeeded unless a tool reported success.
 
+You work in a loop: think, act with a tool, read the result, then continue until the request is done. Before calling tools, write ONE short sentence stating your plan.
+
 Rules:
 - Call search_products at most once per request; reuse its product_ids afterwards.
+- "best / cheapest / compare / which" requests: after searching, call get_product_details for up to 3 top candidates (all in the same step), choose using their specs and ratings, then act. In your final reply say in one sentence why you chose it, using only facts from the tool results.
 - Browsing/searching (no add/buy/save/wishlist verb): name the matching product(s) with price, then stop.
-- Add/buy/save/wishlist: search once, then immediately call the matching tool (add_to_cart / add_to_wishlist / save_for_later) with the best-match product_id, then report what you did.
+- Add/buy/save/wishlist: search once (compare first if asked for the "best"), then call the matching tool (add_to_cart / add_to_wishlist / save_for_later) with the chosen product_id, then report what you did.
 - "buy"/"purchase": there is no payment processing — call add_to_cart and tell them to review it at checkout. Never claim a purchase completed.
 - If a tool says the user is not logged in, tell them to log in.
 - CRITICAL: only mention product names and prices that appear exactly in a tool result from this conversation — never from your own knowledge. If nothing relevant was found, say so.
@@ -66,11 +72,59 @@ const MAX_HISTORY_CHARS = 600;
 
 // Requests like "add it and show my cart" need a follow-up model pass; only
 // short-circuit a write action when the user asked for nothing else.
-const COMPOUND_INTENT = /\b(and|then|also|plus|show|view|list|display|what|which|how)\b/i;
+// ("best/cheapest/…" too: the user wants the choice explained, not just a confirmation.)
+const COMPOUND_INTENT =
+  /\b(and|then|also|plus|show|view|list|display|what|which|how|best|cheapest|compare|recommend|better)\b/i;
 
 type ChatMessage = { role: 'user' | 'assistant' | 'system' | 'tool'; content: string; tool_call_id?: string; tool_calls?: unknown };
 type SearchedProduct = { id: number; name: string; price: number | null };
 type ToolOutcome = { tool: string; result: Record<string, unknown> };
+
+// One Thought → Action → Observation entry of the ReAct loop, returned to the
+// UI so the user can see HOW the agent reached its answer.
+type TraceStep = { thought?: string; action: string; observation: string };
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
+
+function formatAction(tool: string, args: Record<string, unknown>): string {
+  const shown = Object.values(args).map((v) => (typeof v === 'string' ? JSON.stringify(v) : String(v)));
+  return `${tool}(${shown.join(', ')})`;
+}
+
+// A short, human-readable summary of what a tool returned — the "Observation".
+function summarizeObservation(tool: string, raw: string): string {
+  let data: unknown;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    return 'unreadable result';
+  }
+  if (data && !Array.isArray(data) && typeof data === 'object' && 'error' in data) {
+    return clip(String((data as { error: unknown }).error), 140);
+  }
+
+  if (tool === 'search_products' && Array.isArray(data)) {
+    const names = (data as { name?: string }[]).slice(0, 4).map((p) => p.name).filter(Boolean);
+    return data.length ? `Found ${data.length}: ${clip(names.join(', '), 120)}` : 'No matches';
+  }
+  if (tool === 'get_product_details') {
+    const d = data as { name?: string; specs?: Record<string, string>; rating?: number | null };
+    const specs = Object.entries(d.specs ?? {})
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('; ');
+    const rating = d.rating ? ` · ★${d.rating}` : '';
+    return clip(`${d.name ?? 'Product'} — ${specs || 'no specs'}${rating}`, 160);
+  }
+  if (tool === 'view_cart' || tool === 'view_saved') {
+    return Array.isArray(data) ? `${data.length} item(s)` : 'unavailable';
+  }
+  if (WRITE_TOOLS.has(tool)) {
+    const d = data as { success?: boolean; name?: string };
+    return d.success ? `Done: ${d.name ?? 'item'}` : 'Failed';
+  }
+  return 'ok';
+}
 
 // Builds the user-facing reply for write actions straight from what the tool
 // actually did — no model pass needed, and it can't misreport the outcome.
@@ -233,7 +287,10 @@ export async function POST(request: Request) {
     const conversation: ChatMessage[] = [{ role: 'system', content: SYSTEM_PROMPT }, ...history];
     let lastSearchResults: SearchedProduct[] = [];
     let searched = false; // did we actually query the catalog this turn?
-    const extraPrices: number[] = []; // prices from cart views, for the guardrail
+    const extraPrices: number[] = []; // prices from cart views / product details, for the guardrail
+    const trace: TraceStep[] = []; // Thought → Action → Observation, shown in the UI
+    // Every successful reply carries the trace so the widget can show the steps.
+    const respond = (reply: string) => NextResponse.json({ reply, steps: trace });
 
     for (let step = 0; step < MAX_STEPS; step++) {
       // Llama on Groq intermittently emits malformed function-call syntax, which
@@ -349,11 +406,20 @@ export async function POST(request: Request) {
         // Final answer — no more tools requested. Verify it before trusting it.
         const reply = choice.content ?? '';
         if (isGrounded(reply, lastSearchResults, extraPrices)) {
-          return NextResponse.json({ reply });
+          return respond(reply);
         }
         console.warn('[chat] ungrounded reply discarded, using deterministic fallback:', reply);
-        return NextResponse.json({ reply: groundedFallback(lastSearchResults, searched) });
+        return respond(groundedFallback(lastSearchResults, searched));
       }
+
+      // The model's visible "Thought" for this step (its one-sentence plan), if
+      // it wrote one. Strip any reasoning tags, cap the length, and drop it later
+      // if it states a price no tool returned.
+      const stepThought =
+        typeof choice.content === 'string'
+          ? clip(choice.content.replace(/<think>[\s\S]*?<\/think>/g, '').trim(), 200)
+          : '';
+      const firstTraceIndex = trace.length;
 
       // The model wants to act. Append its tool-call turn, then execute each
       // tool for real and append the results — this is the "loop" in agentic loop.
@@ -372,6 +438,10 @@ export async function POST(request: Request) {
         console.log(`[chat]   → ${call.function.name}(${JSON.stringify(args)})`);
         console.log(`[chat]   ← ${result.slice(0, 200)}`);
         conversation.push({ role: 'tool', tool_call_id: call.id, content: result });
+        trace.push({
+          action: formatAction(call.function.name, args),
+          observation: summarizeObservation(call.function.name, result),
+        });
 
         if (call.function.name === 'search_products') {
           searched = true;
@@ -379,6 +449,14 @@ export async function POST(request: Request) {
             lastSearchResults = JSON.parse(result) as SearchedProduct[];
           } catch {
             /* leave lastSearchResults as-is if the tool returned an error shape */
+          }
+        } else if (call.function.name === 'get_product_details') {
+          // Prices the model may now legitimately quote (the product's range).
+          try {
+            const d = JSON.parse(result) as { price_from?: number | null; price_to?: number | null };
+            for (const p of [d.price_from, d.price_to]) if (typeof p === 'number') extraPrices.push(p);
+          } catch {
+            /* error shape — nothing to trust */
           }
         } else if (READ_TOOLS.has(call.function.name)) {
           let parsed: unknown = null;
@@ -398,6 +476,12 @@ export async function POST(request: Request) {
         }
       }
 
+      // Attach the model's thought to the first action of this step — but only if
+      // every price it mentions is one a tool actually returned.
+      if (stepThought && trace[firstTraceIndex] && isGrounded(stepThought, lastSearchResults, extraPrices)) {
+        trace[firstTraceIndex].thought = stepThought;
+      }
+
       // Every call this step was a write action (add / wishlist / save) and the
       // user asked for nothing more: the outcome is fully known, so answer from
       // the tool results directly. Saves a whole LLM pass (~1.3k tokens), which
@@ -408,7 +492,7 @@ export async function POST(request: Request) {
         outcomes.length > 0 &&
         !COMPOUND_INTENT.test(lastUserText)
       ) {
-        return NextResponse.json({ reply: describeWrites(outcomes) });
+        return respond(describeWrites(outcomes));
       }
 
       // Same idea for pure read-only views of the user's own cart/wishlist: the
@@ -419,12 +503,12 @@ export async function POST(request: Request) {
         readOutcomes.length > 0 &&
         !WRITE_VERB.test(lastUserText)
       ) {
-        return NextResponse.json({ reply: describeReads(readOutcomes) });
+        return respond(describeReads(readOutcomes));
       }
       // loop again so the model can read the tool results and respond/act further
     }
 
-    return NextResponse.json({ reply: "I've made several changes — is there anything else you'd like?" });
+    return respond("I've made several changes — is there anything else you'd like?");
   } catch (e) {
     console.error('chat route failed:', e);
     return NextResponse.json({ error: 'Chat failed.' }, { status: 500 });

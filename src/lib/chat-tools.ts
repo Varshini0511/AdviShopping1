@@ -32,6 +32,18 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'get_product_details',
+      description: 'Get specs (e.g. camera), rating and price range for one product. Use it to compare candidates before choosing.',
+      parameters: {
+        type: 'object',
+        properties: { product_id: { type: 'number' } },
+        required: ['product_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_to_cart',
       description: 'Add a product to the cart. Needs a product_id from search_products.',
       parameters: {
@@ -155,6 +167,44 @@ export async function executeTool(
           in_stock: r.stock > 0,
         }))
       );
+    }
+
+    // The "Observe" half of a compare-then-decide ReAct loop: search_products only
+    // returns name + price, so without this the agent has nothing to judge
+    // "best camera" with. Output is kept compact — it is re-sent on every pass.
+    case 'get_product_details': {
+      const productId = Number(args.product_id);
+      if (!productId) return JSON.stringify({ error: 'Missing product_id.' });
+
+      const { data: p } = await supabase
+        .from('products')
+        .select('id, name, description, rating, review_count, stock, product_spec(spec_name, spec_value), product_variants(price)')
+        .eq('id', productId)
+        .maybeSingle();
+      if (!p) return JSON.stringify({ error: 'Product not found.' });
+
+      const row = p as unknown as {
+        id: number;
+        name: string;
+        description: string | null;
+        rating: number | null;
+        review_count: number | null;
+        stock: number;
+        product_spec: { spec_name: string; spec_value: string }[] | null;
+        product_variants: { price: number }[] | null;
+      };
+      const prices = (row.product_variants ?? []).map((v) => Number(v.price)).filter(Number.isFinite);
+      return JSON.stringify({
+        id: row.id,
+        name: row.name,
+        specs: Object.fromEntries((row.product_spec ?? []).map((s) => [s.spec_name, s.spec_value])),
+        summary: String(row.description ?? '').slice(0, 220),
+        rating: row.rating,
+        reviews: row.review_count,
+        price_from: prices.length ? Math.min(...prices) : null,
+        price_to: prices.length ? Math.max(...prices) : null,
+        in_stock: row.stock > 0,
+      });
     }
 
     case 'add_to_cart': {
