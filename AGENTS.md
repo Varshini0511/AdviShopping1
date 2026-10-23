@@ -16,6 +16,7 @@ Its purpose is to demonstrate applied AI engineering, not to be a production sto
 1. **Hybrid search** — 6-stage retrieval pipeline (keyword + semantic → RRF fusion → cross-encoder rerank → LLM summary) with metadata filters and an evaluation harness.
 2. **Shopping agent** — chat widget where an LLM performs real actions via tool calling (search, add to cart, wishlist, save for later, view cart/saved), guarded by a code-level grounding check. Voice in/out.
 3. **Visual search** — CLIP image embeddings, upload a photo → similar products.
+4. **Document AI** (`/extract`) — extract structured data from **invoices, receipts and product datasheets** (PDF text layer or photo) with a vision-capable model, schema validation, arithmetic cross-checks and a confidence score. Built to satisfy the portfolio requirement "voice <800 ms OR extracts data from 3 document types"; the voice path does **not** meet <800 ms (see §7), so this is the claimed route.
 
 Quality bar: it should look professional on a phone and a laptop, work for a stranger clicking a link, and be
 honest about its limits (the README has a "Known limitations" section — keep it truthful).
@@ -24,23 +25,19 @@ honest about its limits (the README has a "Known limitations" section — keep i
 
 ## 2. Current status (snapshot)
 
-- Branch `main`, remote `https://github.com/Varshini0511/AdviShopping1.git`.
-- Everything is committed and **pushed**; `main` matches `origin/main` (verify with `git status -sb`).
-- **Live:** https://advishopping1.onrender.com (Render free tier, deployed from `main`). Verified live: security
-  headers present, home page ~115 KB with 0 embedding strings, search works (~6 s first request), chat agent
-  answers browse queries and returns the login message for logged-out writes, OG image served.
-- **Not live yet:** the **Try the demo** button — `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` are not set on Render
-  (they are build-time, so set them and clear-cache redeploy). The demo user also still has to be created.
-- **Done & working:** hybrid search, filters, agent (+voice), visual search, evaluation, sign-up / sign-in /
-  demo login, mobile + laptop layouts, OG share card + favicon, error/404 pages, rate limiting, upload
-  validation, security headers.
-- **A local server may be running on port 3100** (started with `npm run start -- -p 3100`). Check before
-  starting another; see §4 for how to stop it.
+- Branch `main`, remote `https://github.com/Varshini0511/AdviShopping1.git`. Live site: https://advishopping1.onrender.com (Render free tier, auto-deploys from `main`).
+- **Latest work (2026-10-23): Document AI** — `/extract` + `POST /api/extract` extract invoices, receipts and product datasheets (PDF text layer or photo). 45 unit tests pass; **13/13 documents extracted correctly** on the generated eval set (incl. 3 degraded phone photos), the trap invoice with a wrong printed total was flagged for review, 0/12 false alarms; ~0.8 s/doc. Details: README "Document extraction" and §9 "Document extraction invariants". Verified inside the PRODUCTION build (unpdf bundles fine).
+- **CI:** `.github/workflows/ci.yml` runs `tsc`, `lint`, `npm test` on push/PR. **Keep-alive:** `.github/workflows/keepalive.yml` pings the live site daily and FAILS (GitHub emails the owner) if the catalog does not render.
+- **⚠ Supabase project was found DOWN on 2026-10-23:** `swcixbjrvjszbmpwiwwv.supabase.co` returned NXDOMAIN from global DNS (Google DoH, status 3) while other supabase.com domains resolved — the signature of a **paused free-tier project** (they pause after ~1 week of inactivity; this already killed the first project). The live catalog showed "We couldn't load the catalog". **Owner action: Supabase dashboard → Restore project.** Verify with `nslookup <host> 8.8.8.8` or open the live home page. Document AI does not use the database, so `/extract` works regardless.
+- **Not live yet:** the **Try the demo** button — `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` are not set on Render (build-time vars: set, then clear-cache redeploy). The demo user also still has to be created.
+- **Done & working:** hybrid search, filters, agent (+voice, ReAct trace, `get_product_details`), visual search, **document extraction**, search evaluation, sign-up / sign-in / demo login, mobile + laptop layouts, OG share card, error/404 pages, rate limiting, upload validation, security headers, unit tests + CI.
+- **Local servers:** check ports 3000/3100/3200 before starting another (`Get-NetTCPConnection -LocalPort <p> -State Listen`); see §4 to stop one.
 
 ### Outstanding (owner/ops items)
 
 | Item | Detail |
 |---|---|
+| **Restore the Supabase project** | **Blocking.** Dashboard → project → Restore. Until then the live catalog, search, cart and agent search are empty/failing. The keep-alive workflow should prevent a repeat (verify it runs: Actions tab). |
 | Create the demo user | `node scripts/create-demo-user.mjs` (needs `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` in `.env.local`). Not yet run. Demo email is `demo@advishopping.app`; password is in `.env.local` only. |
 | Rebuild after env change | `NEXT_PUBLIC_*` values are baked at build time. |
 | Render env vars | Add `NEXT_PUBLIC_DEMO_EMAIL`, `NEXT_PUBLIC_DEMO_PASSWORD` (and `DISABLE_RERANKER=true` on the 512 MB tier), then **Manual Deploy → Clear build cache & deploy**. |
@@ -60,7 +57,8 @@ honest about its limits (the README has a "Known limitations" section — keep i
   - `Supabase/gte-small` — text embeddings, 384-dim
   - `Xenova/ms-marco-MiniLM-L-6-v2` — cross-encoder reranker
   - `Xenova/clip-vit-base-patch32` — image embeddings, 512-dim
-- **Groq** (OpenAI-compatible API) for the LLM. Default model `qwen/qwen3.8-27b` (override `GROQ_MODEL`).
+- **zod 4** (schemas + normalisation), **unpdf** (PDF text layer), **vitest** (unit tests), **pdf-lib** (dev: generates sample PDFs).
+- **Groq** (OpenAI-compatible API) for the LLM. `qwen/qwen3.8-27b` is **multimodal**: it reads images directly (verified), so there is no OCR step. Default model `qwen/qwen3.8-27b` (override `GROQ_MODEL`).
 - Node 22, npm 10. Path alias `@/*` → `src/*`. Icons: `react-icons`.
 - Windows 11 dev machine. Shell tools may be Git Bash or PowerShell — commands below are bash unless noted.
 
@@ -78,6 +76,9 @@ honest about its limits (the README has a "Known limitations" section — keep i
 | `npm run embeddings` | Embed products missing a text embedding |
 | `npm run image-embeddings` | CLIP-embed product images |
 | `npm run evaluate` | P@k / R@k / NDCG@k over 4 methods |
+| `npm test` | Vitest unit tests (extraction schemas/checks, rate limiter) |
+| `npm run extract:samples` | Regenerate `eval/docs/*` (9 labelled docs + expected JSON) and `public/samples/*` |
+| `BASE_URL=… npm run eval:extract` | Score `/api/extract` against ground truth (slow on purpose: ~40 s between docs for the free-tier token limits) |
 | `node scripts/create-demo-user.mjs` | Create/reset the shared demo user |
 
 Stop a server on a port (PowerShell):
@@ -101,11 +102,13 @@ src/
     product/[id]/page.tsx      detail page (generateStaticParams, notFound, generateMetadata)
     category/[categoryName]/   category listing
     visual-search/page.tsx     upload UI (client)
+    extract/page.tsx           Document AI UI: samples, upload, fields, confidence, raw JSON
     cart/page.tsx              cart (client, from CartContext)
     (auth)/login/page.tsx      sign in / sign up / demo / resend confirmation
     (auth)/callback/route.ts   email-confirmation landing (code exchange + error routing)
     api/chat/route.ts          THE AGENT LOOP + guardrails (see §7)
     api/image-search/route.ts  CLIP similarity endpoint (validation + rate limit)
+    api/extract/route.ts       document extraction endpoint (rate limit, 5 MB cap, magic-byte sniffing)
     api/revalidate/route.ts    webhook-protected cache revalidation (REVALIDATION_TOKEN)
     opengraph-image.tsx icon.tsx not-found.tsx error.tsx
   components/                  Navbar (mobile menu), ChatWidget (+voice), ProductCard, ProductDetails
@@ -117,6 +120,10 @@ src/
     llm.ts                     stage-6 JSON summary via Groq
     chat-tools.ts              TOOLS schemas + executeTool (ONLY place the agent writes the DB)
     image-embeddings.ts        CLIP
+    doc-extract.ts             classify+extract in one call, schema validate, ONE repair retry, checks, confidence
+    doc-schemas.ts             zod schemas per doc type (+ number/date/currency normalisation)
+    doc-checks.ts              pure arithmetic cross-checks + scoreConfidence (unit-tested)
+    pdf-text.ts                unpdf wrapper (10 pages / 12k chars max; scanned PDFs rejected)
     rate-limit.ts              in-memory per-IP limiter
   instrumentation.ts           preloads the text embedding model at server start
 supabase/                      schema.sql → pipeline.sql → wishlist.sql → image-search.sql
@@ -151,7 +158,9 @@ Invariants — **do not break these**:
 1. **The model never touches the DB.** It emits tool calls; `executeTool` runs them. `userId` comes from the session cookie, never from model output.
 2. **Only the last 6 `user`/`assistant` messages** (600 chars each) are accepted; client-supplied `system`/`tool` roles are dropped.
 3. **Step 0 uses `tool_choice: 'required'`** (falls back to `'auto'` if the provider 400s). Without it the model answers from memory and invents products.
-4. **`max_tokens = 400`, `MAX_STEPS = 5`.**
+4. **`max_tokens = 400`, `MAX_STEPS = 6`.** A "best X and add it" request needs 4 passes (search → `get_product_details` ×3 → add → explain, ≈6k tokens of the 8k/min budget).
+4b. **ReAct trace:** the route returns `{ reply, steps: [{thought?, action, observation}] }` via `respond()`; `ChatWidget` renders it as a `<details>` "How I got this". Thoughts are optional (the model may not write one) and are dropped if `isGrounded()` fails. `COMPOUND_INTENT` includes `best|cheapest|compare|recommend|better` so those requests are explained by the model instead of short-circuited.
+4c. **Seven tools** now: `search_products`, `get_product_details` (specs/rating/price range; its prices feed the guardrail), `add_to_cart`, `add_to_wishlist`, `save_for_later`, `view_cart`, `view_saved`.
 5. **Grounding guardrail** `isGrounded()`: every `$` amount in a model-written reply must match a price returned by a tool this turn (search results **and** cart unit/line/total prices). Handles `$1,199`. Failure → deterministic fallback; "not in the catalog" wording only if a search actually ran.
 6. **Short-circuits (no extra model pass):**
    - Write tools (`add_to_cart`, `add_to_wishlist`, `save_for_later`) → reply built by `describeWrites()` from the tool result, unless `COMPOUND_INTENT` matches the user text.
@@ -220,13 +229,23 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 
 ---
 
+### Document extraction invariants (`/api/extract`)
+
+1. **Model output is a proposal.** It must pass the per-type zod schema; the schemas also normalise (`"$1,234.50"`, European `"1.234,50"`, `"March 5, 2025"`, `€` → `EUR`). Don't loosen them to make a case pass.
+2. **One repair retry only** (the exact validation errors are fed back); then fail cleanly. No loops.
+3. **Cross-checks (`doc-checks.ts`) measure internal consistency, not correctness** — line items vs subtotal, subtotal + tax vs total, qty × unit vs amount. `needsReview` = any `error` check or confidence < 0.7. Keep that wording honest in UI/docs.
+4. **Never invent values:** absent fields must come back `null` (verified: a datasheet with no price returns `price: null`).
+5. **Untrusted input:** file type is decided by **magic bytes** (`sniff()`), not the client MIME; size ≤ 5 MB checked from `Content-Length` first; files are never stored; the prompt tells the model to ignore instructions inside the document; the model has no tools on this path.
+6. **Free-tier limits:** ~1,000 *output* tokens/min and 8,000 total/min on Groq → ~1–2 docs/min. `MAX_OUTPUT_TOKENS = 900`; the eval script spaces documents ~40 s apart.
+7. **Eval data is generated** (`scripts/make-sample-docs.mjs`) and deliberately varied (US/EU number formats, $ € £, different date styles, no-tax receipt, no-price datasheet). Regenerate with `npm run extract:samples`; never hand-edit expected JSON to flatter results.
+
 ## 10. Known issues / TODO (prioritized)
 
 1. Set the demo env vars on Render and create the demo user (see Outstanding table above).
 2. **Cart badge doesn't refresh after the agent adds items** — the agent writes server-side; `CartContext` isn't notified. Fix: expose a `refresh()` in `CartContext` and call it after write/read tool replies in `ChatWidget`.
 3. **`saved_items` lacks an UPDATE RLS policy** while `executeTool` uses `upsert(onConflict …)`; re-saving an existing item may be rejected (unverified). Add an `update` policy to `wishlist.sql` or switch to insert-ignore.
 4. **No `remove_from_cart` / change-quantity tool** for the agent.
-5. **No tests / CI.** Candidates: unit tests for RRF fusion, `isGrounded` (incl. `$1,199`), `describeWrites`/`describeReads`, `rate-limit`; GitHub Actions running `tsc`, `lint`, `build`. A `scripts/smoke-test.mjs` for the curl-able checks was offered but not built.
+5. **Test coverage is partial.** Vitest covers `doc-schemas`, `doc-checks`, `rate-limit` (36 tests); CI (`.github/workflows/ci.yml`) runs `tsc`, `lint`, `npm test` (not `next build` — it needs Supabase credentials). Still untested: RRF fusion (inside `search-pipeline.ts`) and `isGrounded` / `describeWrites` / `describeReads` (inside `api/chat/route.ts`, which can only export route handlers — move them to `src/lib/` first). No e2e tests.
 6. **No "Forgot password"**, no CAPTCHA on open sign-up.
 7. **No orders/checkout** (cart can't become an order); button explains payments aren't implemented.
 8. **Rate limiter is per-instance memory** — use Redis/Upstash for multi-instance. IP comes from proxy headers (spoofable).

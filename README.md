@@ -1,10 +1,11 @@
 # AdviShopping — AI Search & Shopping Agent
 
-A full-stack e-commerce demo built around three AI capabilities that go well beyond a typical CRUD shop:
+A full-stack e-commerce demo built around four AI capabilities that go well beyond a typical CRUD shop:
 
 1. **Hybrid search** — a 6-stage retrieval pipeline (keyword + semantic → fusion → cross-encoder rerank → LLM), with hard metadata filters and a reproducible evaluation harness.
 2. **Conversational shopping agent** — an LLM that *takes real actions* through tool calling (search, add to cart, wishlist, view cart), guarded by a code-level grounding check so it can't invent products or prices. Supports voice in and out.
 3. **Visual search** — upload a photo and find visually similar products with CLIP image embeddings.
+4. **Document AI** — extract structured data from **invoices, receipts and product datasheets** with a vision-capable model, schema validation and arithmetic cross-checks, scored on a labelled evaluation set.
 
 > **Live demo:** https://advishopping1.onrender.com
 > Hosted on a free tier, so the first visit after idle can take up to a minute to wake up.
@@ -20,6 +21,7 @@ Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgv
 - [How the search pipeline works](#how-the-search-pipeline-works)
 - [The shopping agent](#the-shopping-agent)
 - [Visual search](#visual-search)
+- [Document extraction](#document-extraction)
 - [Evaluation](#evaluation)
 - [Accounts & demo login](#accounts--demo-login)
 - [Mobile & laptop support](#mobile--laptop-support)
@@ -47,6 +49,7 @@ Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgv
 | **Agent** | Floating chat: *"add a watch to my cart"*, *"what's in my cart?"*, *"save the headphones for later"* |
 | **Voice** | Speak a request, hear the reply (browser-native Web Speech API) |
 | **Visual search** | Upload an image → visually similar products |
+| **Document AI** | Upload an invoice, receipt or datasheet (PDF or photo) → validated JSON, a confidence score and the checks behind it |
 | **Cart & auth** | Supabase email/password auth, per-user cart protected by row-level security |
 | **Sharing** | Open Graph / Twitter card, generated share image, favicon, per-page titles |
 
@@ -89,11 +92,12 @@ Key parameters: `RRF_K = 60`, `SHORTLIST = 10`, `TOP_RESULTS = 6`, `RERANK_CONFI
 
 Implemented in [`src/app/api/chat/route.ts`](src/app/api/chat/route.ts) and [`src/lib/chat-tools.ts`](src/lib/chat-tools.ts).
 
-The model **never touches the database**. It can only emit a structured request for one of six declared tools; the server validates and executes it.
+The model **never touches the database**. It can only emit a structured request for one of seven declared tools; the server validates and executes it.
 
 | Tool | Action |
 |---|---|
 | `search_products` | hybrid search (keyword + semantic) |
+| `get_product_details` | specs, rating and price range for one product — lets the agent *compare* candidates |
 | `add_to_cart` | insert/update `cart_items` |
 | `add_to_wishlist` / `save_for_later` | upsert `saved_items` |
 | `view_cart` / `view_saved` | read the signed-in user's lists |
@@ -113,6 +117,20 @@ Groq reads result  ────────────────────�
 direct reply built from the tool result:  "Added Smart Fitness Watch ($149.00) to your cart."
 ```
 
+### A multi-step example (ReAct)
+
+> *"Get me the best iPhone with good camera quality and add it to my cart"*
+
+```
+1. search_products("iphone with good camera quality")  → 5 iPhones found
+2. get_product_details(13, 26, 27)                       → camera specs + ratings for the top 3
+3. (decide)  iPhone 15 Pro: 48MP Pro camera, 4.8★ — the best of the three
+4. add_to_cart(13)                                        → success (or "please log in")
+5. reply: explains the choice using only facts from the tool results
+```
+
+Four model passes (~6k tokens), so on the free tier expect roughly one such request per minute.
+
 ### Safety and reliability properties
 
 | Property | How it's enforced |
@@ -122,7 +140,8 @@ direct reply built from the tool result:  "Added Smart Fitness Watch ($149.00) t
 | **No fake purchases** | "Buy this" adds to the cart and says so. There is no payment processing and the agent never claims one. |
 | **Exact write/read replies** | After `add_to_cart` / wishlist / save, and for `view_cart` / `view_saved`, the reply is rendered straight from the tool result — no second model pass to paraphrase (or mis-state) it. Compound requests ("add it and show my cart") still go through the model. |
 | **Forced tool use** | The first step requires a tool call (`tool_choice: required`, with a fallback to `auto` if a provider rejects it), so the model can't answer from its own memory. |
-| **Bounded loop and output** | `MAX_STEPS = 5`, `max_tokens = 400`. |
+| **Bounded loop and output** | `MAX_STEPS = 6`, `max_tokens = 400`. |
+| **Visible ReAct trace** | Every reply carries the loop's **Thought → Action → Observation** steps, shown under the message as *How I got this*. Thoughts are dropped if they state a price no tool returned. |
 | **Input hygiene** | Only the last 6 `user`/`assistant` turns (600 chars each) are accepted; client-supplied `system`/`tool` messages are dropped. |
 | **Per-visitor limit** | `/api/chat` allows 12 requests/min per IP and returns `429` + `Retry-After` beyond that, before any model call is made. |
 | **Rate-limit handling** | A Groq 429 with a short `retry-after` is waited out and retried; otherwise the user gets a clear "busy, try again" message. Transient `tool_use_failed` generations are retried up to 3 times. |
@@ -145,6 +164,58 @@ The free tier is metered **per minute** (8,000 tokens/min for the default model)
 **CLIP** (`clip-vit-base-patch32`) was trained on image–caption pairs to put images and text in **one shared 512-dimension space**. The uploaded photo is embedded and compared against precomputed product-image vectors with the same cosine operator used for text. Products have a separate `image_embedding vector(512)` column and HNSW index — it's a different space from the 384-dim text embeddings and the two must never be compared.
 
 ---
+
+## Document extraction
+
+**Document AI** turns an **invoice, a receipt or a product datasheet** (a PDF with a text layer, or a photo/screenshot) into validated JSON — and tells you how much to trust it. Try it at [`/extract`](https://advishopping1.onrender.com/extract) with one-click samples, including an invoice that contains a deliberate error.
+
+> This feature exists to cover the "multimodal agent" requirement via **document extraction (3 document types)**. A voice agent under 800 ms end-to-end is *not* claimed: the voice mode here uses the browser's speech APIs plus a multi-step agent, which is not that fast.
+
+### How it works
+
+```
+upload ─► detect real file type from its bytes ─► PDF? read the text layer      ─┐
+          (PDF / PNG / JPG / WebP / text)         image? send it to the model   ├─► ONE model call:
+                                                  (it is multimodal: no OCR)   ─┘   classify + extract JSON
+                                                                                          │
+   ┌──────────────────────────────────────────────────────────────────────────────────────┘
+   ▼
+ validate against a per-type schema (zod) ──fails──► ONE repair retry: feed the exact errors back
+   │ passes (and numbers/dates/currency get normalised)
+   ▼
+ arithmetic cross-checks ──► confidence score + "needs human review" flag
+```
+
+| Step | What it does | Why |
+|---|---|---|
+| **Schema validation** (`doc-schemas.ts`) | Every field must match a typed schema. It also normalises `"$1,234.50"`, European `"1.234,50"`, `"March 5, 2025"` and `€` → `EUR`. | A model's JSON is only a proposal; near-misses shouldn't become failures. |
+| **Repair retry** | If validation fails, the exact errors go back to the model **once**. | Cheap self-correction, but bounded: no loops. |
+| **Cross-checks** (`doc-checks.ts`) | Line items must sum to the subtotal; subtotal + tax must equal the total; quantity × unit price must equal the line amount. | Documents carry their own redundancy, so many misreadings are detectable **without ground truth**. |
+| **Confidence + review flag** | Derived from the checks and whether a repair was needed. | Honest about what it measures: *internal consistency*, not correctness against the paper. |
+| **Safety** | File type decided from the actual bytes (not the claimed MIME type), 5 MB cap, per-IP rate limit, nothing stored, and the document is treated as untrusted data (the model has no tools here and is told to ignore instructions inside it). | The endpoint is public and every call costs model quota. |
+
+### Evaluation (measured)
+
+`npm run eval:extract` scores the endpoint against ground truth on a **generated, labelled set of 13 documents** (`eval/docs/`): 4 invoices, 6 receipts (3 clean + 3 deliberately degraded phone photos: shrunk, blurred, rotated, heavily compressed) and 3 datasheets. The set is varied on purpose: US and European number formats, `$ € £`, different date styles, a receipt with no tax line, a datasheet with no price, and one **trap** invoice whose printed total is wrong.
+
+| Document type | Docs | Type accuracy | Field accuracy | Line-item / spec F1 | Fully correct |
+|---|---|---|---|---|---|
+| Invoice | 4 | 100% | 100% | 1.00 | 4/4 |
+| Receipt | 6 | 100% | 100% | 1.00 | 6/6 |
+| Datasheet | 3 | 100% | 100% | 1.00 | 3/3 |
+
+- **13/13** documents extracted exactly as labelled; no repair retries were needed.
+- **Review flag:** the trap invoice (subtotal 403.25 + tax 32.26 ≠ printed total 453.51) was extracted *faithfully* (the model did not silently "fix" the paper) and **flagged** with the reason; **0 of 12** correct documents were flagged (no false alarms).
+- **Cost/latency:** about 0.8 s per document server-side (including PDF parsing) and ~1,240 tokens, measured on a local production build against the Groq free tier.
+- Reproduce: `npm run extract:samples` (generates the documents) → start the app → `npm run eval:extract`. Raw results: [`eval/results.json`](eval/results.json).
+
+**What the evaluation taught me** (the run was not perfect the first time):
+
+1. **A provider outage looked like an accuracy failure.** One document "failed" with a generic error because Groq returned HTTP 503 (*model over capacity*) and the code treated that as fatal. Fix: exponential-backoff retries on 5xx, a clear *"temporarily unavailable"* message if it persists, and unit tests for both.
+2. **My own prompt caused a real error.** I told the model "numbers without thousands separators", and it applied that to a free-text spec, turning `4,800 mAh` into `4800 mAh`. Fix: the prompt now distinguishes *numeric fields* from *text copied exactly as written*. (I fixed the prompt, not the scorer.)
+3. **Zero errors means the review flag was untested**, so I added the trap invoice to exercise it for real.
+
+**Honest limits:** the set is small and **synthetic**, and I adjusted the prompt after seeing the first run on this same set, so treat 13/13 as "the method works and its failure modes are understood", not as accuracy on arbitrary real-world paperwork. Scanned PDFs (no text layer) are rejected with a message to upload a photo instead; multi-page documents are capped at 10 pages; the checks catch numbers that disagree with each other, not a value that is wrong but self-consistent.
 
 ## Evaluation
 
@@ -247,10 +318,12 @@ src/
     product/[id]/             product detail (static params, styled not-found page)
     category/[categoryName]/  category listing
     visual-search/            image upload UI
+    extract/                  Document AI: upload, samples, results
     cart/  (auth)/login/      cart, sign in / sign up / demo
     (auth)/callback/          email-confirmation code exchange
     api/chat/                 agent loop + guardrails
     api/image-search/         CLIP similarity endpoint
+    api/extract/              document extraction endpoint (PDF / image / text)
     api/revalidate/           webhook-triggered cache revalidation
     opengraph-image.tsx icon.tsx not-found.tsx error.tsx
   components/                 Navbar, ChatWidget, ProductCard, ProductDetails, skeletons
@@ -262,6 +335,10 @@ src/
     llm.ts                    stage-6 summary (Groq)
     chat-tools.ts             tool schemas + executeTool (only DB writer)
     image-embeddings.ts       CLIP
+    doc-extract.ts            document extraction: classify + extract + validate + repair
+    doc-schemas.ts            per-type schemas that also normalise numbers/dates/currency
+    doc-checks.ts             arithmetic cross-checks + confidence score (pure, unit-tested)
+    pdf-text.ts               PDF text-layer reader
   instrumentation.ts          model preload at startup
 supabase/                     schema.sql · pipeline.sql · wishlist.sql · image-search.sql
 scripts/                      embeddings, evaluation, seeding, demo user
@@ -336,6 +413,9 @@ node scripts/create-demo-user.mjs
 | `npm run embeddings` | embed products that lack a text embedding |
 | `npm run image-embeddings` | CLIP-embed product images |
 | `npm run evaluate` | precision / recall / NDCG across the 4 methods |
+| `npm test` | unit tests (Vitest) for extraction logic and the rate limiter |
+| `npm run extract:samples` | regenerate the labelled document set in `eval/docs/` and the UI samples |
+| `npm run eval:extract` | score document extraction against ground truth (needs the app running) |
 | `node scripts/create-demo-user.mjs` | create or reset the shared demo user |
 | `node scripts/add-products.mjs` | seed extra products |
 | `node scripts/add-phones.mjs` | seed phone models with variants |
@@ -373,6 +453,7 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 - **Secrets stay out of git** — `.env*` is ignored. Rotate any key that has been pasted into a chat or log.
 - Demo credentials are public by design; the shared account holds nothing sensitive and is reset each session.
 - **Rate limiting** — `/api/chat` (12 requests/min) and `/api/image-search` (10 requests/min) are limited per client IP and return `429` with a `Retry-After` header, so a script can't drain the Groq quota or the host's CPU.
+- **Document uploads** — `/api/extract` rate-limits per IP (6/min), caps files at 5 MB, and checks the file's **actual leading bytes** (a renamed `.exe` is rejected, whatever MIME type it claims). Files are processed in memory and never stored. Document text is treated as untrusted: the prompt says to ignore instructions inside it, the model has no tools there, and its output must pass a strict schema before anything is shown.
 - **Upload validation** — image search accepts only JPG/PNG/WebP up to 5 MB; oversized requests are rejected from `Content-Length` *before* the body is buffered, and re-checked after parsing. The same rules run client-side for a faster message.
 - **Security headers** — `Content-Security-Policy` (restricts script/connection/frame/form targets; `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (microphone for voice only), and HSTS.
 - **No internal data leakage** — list and detail pages select explicit columns, so embedding vectors (~6 KB each) never reach the browser. This also cut the home page from ~488 KB to ~115 KB.
@@ -417,7 +498,8 @@ Stated plainly, because they matter:
 - **Rate limiting is in-memory.** It's per server instance, resets on restart, and keys on proxy-supplied client IPs (which can be spoofed). Fine for a single-instance demo; a multi-instance deployment needs a shared store such as Redis.
 - **The CSP still allows `'unsafe-inline'` scripts/styles**, because Next.js emits inline bootstrap scripts. A nonce-based policy would remove that.
 - **The search and chat endpoints are public** (no login required); they are protected by per-IP rate limits and upload validation, not by authentication.
-- **No automated tests or CI yet.** Logic was verified manually and with the evaluation harness.
+- **Tests cover the pure logic only** (extraction schemas/checks, rate limiter). There are no end-to-end browser tests, and CI runs typecheck, lint and unit tests but not `next build` (which needs Supabase credentials).
+- **Document AI reads text PDFs and images, not scanned PDFs**, and the evaluation set is small and synthetic (9 documents); it shows the method works, not how it behaves on arbitrary real-world paperwork.
 
 ---
 
@@ -425,7 +507,7 @@ Stated plainly, because they matter:
 
 - Shared rate-limit store (Redis/Upstash) and a nonce-based CSP without `'unsafe-inline'`
 - "Forgot password" flow and CAPTCHA/bot protection on sign-up
-- Unit tests for the pure logic (RRF fusion, grounding check, price parsing) and a CI workflow
+- End-to-end tests (Playwright) for the main flows, and unit tests for the search pipeline's fusion logic and the agent's grounding check (move them out of the route file first)
 - `remove_from_cart` and quantity-change tools for the agent
 - Larger, noisier catalog to make the retrieval ablation more informative
 - Query preprocessing (spelling correction, expansion) and chunking for long descriptions
