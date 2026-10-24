@@ -428,13 +428,14 @@ node scripts/create-demo-user.mjs
 
 ## Testing & CI
 
-**Unit tests** — `npm test` runs 45 [Vitest](https://vitest.dev) tests across four files, in about half a second and with no network or API key:
+**Unit tests** — `npm test` runs 52 [Vitest](https://vitest.dev) tests across five files, in about half a second and with no network or API key:
 
 | File | Covers |
 |---|---|
 | `doc-schemas.test.ts` | normalisation of `"$1,234.50"`, European `"1.234,50"`, `"March 5, 2025"`, currency symbols; schema accept/reject cases |
 | `doc-checks.test.ts` | the arithmetic cross-checks (items vs subtotal, subtotal + tax vs total, qty × unit) and the confidence/review scoring |
 | `doc-extract.test.ts` | the extraction engine with the **model mocked**: clean answer, the one-shot repair retry, giving up after one repair, non-JSON replies, non-documents, `<think>`/code-fence stripping, and **503 backoff** (recovers, or fails with a clear error) |
+| `file-sniff.test.ts` | content-based file-type detection: PDF/PNG/JPEG/WebP signatures, and that an SVG or HEIF disguised as an image is **not** accepted |
 | `rate-limit.test.ts` | per-key budgets, window reset, client-IP detection, the 429 response |
 
 Not covered by unit tests: the search pipeline's fusion maths and the agent's grounding check (both live inside files that can't export helpers yet) and any browser-level flow. Retrieval quality is measured separately by `npm run evaluate`, and document extraction by `npm run eval:extract`.
@@ -482,7 +483,8 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 - Demo credentials are public by design; the shared account holds nothing sensitive and is reset each session.
 - **Rate limiting** — `/api/chat` (12 requests/min) and `/api/image-search` (10 requests/min) are limited per client IP and return `429` with a `Retry-After` header, so a script can't drain the Groq quota or the host's CPU.
 - **Document uploads** — `/api/extract` rate-limits per IP (6/min), caps files at 5 MB, and checks the file's **actual leading bytes** (a renamed `.exe` is rejected, whatever MIME type it claims). Files are processed in memory and never stored. Document text is treated as untrusted: the prompt says to ignore instructions inside it, the model has no tools there, and its output must pass a strict schema before anything is shown.
-- **Upload validation** — image search accepts only JPG/PNG/WebP up to 5 MB; oversized requests are rejected from `Content-Length` *before* the body is buffered, and re-checked after parsing. The same rules run client-side for a faster message.
+- **Upload validation** — image search accepts only JPG/PNG/WebP up to 5 MB. The type is decided from the file's **actual bytes** (shared `file-sniff.ts`), not the client-declared MIME type: the image decoder (`sharp`/libvips) goes by content, so an SVG or HEIF labelled `image/png` would otherwise reach it. Oversized requests are rejected from `Content-Length` *before* the body is buffered and re-checked after parsing; the same rules run client-side for a faster message.
+- **Dependency security** — `npm audit --omit=dev` reports **0 critical**. `next` is kept on a patched 15.5.x. `@xenova/transformers` v2 (the model runtime) pins old copies of `sharp` and `protobufjs`; `package.json` `overrides` force the patched `sharp` 0.35.5 and `protobufjs` 7.6.x — **do not remove them** without re-running `npm audit` and the visual-search test. One advisory remains (a `postcss` copy pinned *inside* Next.js, used only for build-time CSS; no user input reaches it); it clears when Next updates its pin.
 - **Security headers** — `Content-Security-Policy` (restricts script/connection/frame/form targets; `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (microphone for voice only), and HSTS.
 - **No internal data leakage** — list and detail pages select explicit columns, so embedding vectors (~6 KB each) never reach the browser. This also cut the home page from ~488 KB to ~115 KB.
 
@@ -519,6 +521,7 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 
 ## Known limitations
 
+- **The model runtime is a legacy major version.** `@xenova/transformers` v2 is unmaintained; its successor is `@huggingface/transformers` v3. Security issues in its dependencies are handled with `overrides` (see Security notes), but a migration is the proper long-term fix.
 Stated plainly, because they matter:
 
 - **Small catalog (~32 products).** Hybrid and rerank gains are hard to show at this scale; the evaluation says so.

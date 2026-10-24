@@ -26,9 +26,10 @@ honest about its limits (the README has a "Known limitations" section — keep i
 ## 2. Current status (snapshot)
 
 - Branch `main`, remote `https://github.com/Varshini0511/AdviShopping1.git`. Live site: https://advishopping1.onrender.com (Render free tier, auto-deploys from `main`).
-- **Latest work (2026-10-23): Document AI** — `/extract` + `POST /api/extract` extract invoices, receipts and product datasheets (PDF text layer or photo). 45 unit tests pass; **13/13 documents extracted correctly** on the generated eval set (incl. 3 degraded phone photos), the trap invoice with a wrong printed total was flagged for review, 0/12 false alarms; ~0.8 s/doc. Details: README "Document extraction" and §9 "Document extraction invariants". Verified inside the PRODUCTION build (unpdf bundles fine).
+- **Latest work (2026-10-23): Document AI** — `/extract` + `POST /api/extract` extract invoices, receipts and product datasheets (PDF text layer or photo). 52 unit tests pass; **13/13 documents extracted correctly** on the generated eval set (incl. 3 degraded phone photos), the trap invoice with a wrong printed total was flagged for review, 0/12 false alarms; ~0.8 s/doc. Details: README "Document extraction" and §9 "Document extraction invariants". Verified inside the PRODUCTION build (unpdf bundles fine).
+- **Security hygiene (2026-10-24):** `next` upgraded to 15.5.28; `npm audit --omit=dev` = 0 critical; both upload routes verify file type from **bytes** via `src/lib/file-sniff.ts` (an SVG/HEIF labelled image/png is rejected).
 - **CI:** `.github/workflows/ci.yml` runs `tsc`, `lint`, `npm test` on push/PR. **Keep-alive:** `.github/workflows/keepalive.yml` pings the live site daily and FAILS (GitHub emails the owner) if the catalog does not render.
-- **⚠ Supabase project was found DOWN on 2026-10-23:** `swcixbjrvjszbmpwiwwv.supabase.co` returned NXDOMAIN from global DNS (Google DoH, status 3) while other supabase.com domains resolved — the signature of a **paused free-tier project** (they pause after ~1 week of inactivity; this already killed the first project). The live catalog showed "We couldn't load the catalog". **Owner action: Supabase dashboard → Restore project.** Verify with `nslookup <host> 8.8.8.8` or open the live home page. Document AI does not use the database, so `/extract` works regardless.
+- **Supabase project:** was found DOWN on 2026-10-23 (`swcixbjrvjszbmpwiwwv.supabase.co` NXDOMAIN, the signature of a paused free-tier project; empty live catalog). It was **restored by 2026-10-24** (hostname resolves, live home page renders 32 products). It WILL pause again after ~1 week idle unless the keep-alive workflow keeps running — check the Actions tab. Check with `nslookup <host> 8.8.8.8`.
 - **Not live yet:** the **Try the demo** button — `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` are not set on Render (build-time vars: set, then clear-cache redeploy). The demo user also still has to be created.
 - **Done & working:** hybrid search, filters, agent (+voice, ReAct trace, `get_product_details`), visual search, **document extraction**, search evaluation, sign-up / sign-in / demo login, mobile + laptop layouts, OG share card, error/404 pages, rate limiting, upload validation, security headers, unit tests + CI.
 - **Local servers:** check ports 3000/3100/3200 before starting another (`Get-NetTCPConnection -LocalPort <p> -State Listen`); see §4 to stop one.
@@ -37,7 +38,7 @@ honest about its limits (the README has a "Known limitations" section — keep i
 
 | Item | Detail |
 |---|---|
-| **Restore the Supabase project** | **Blocking.** Dashboard → project → Restore. Until then the live catalog, search, cart and agent search are empty/failing. The keep-alive workflow should prevent a repeat (verify it runs: Actions tab). |
+| Confirm keep-alive is running | `keepalive.yml` has a daily schedule; confirm a run appears in the repo's Actions tab (or trigger it once with *Run workflow*). Without it the Supabase free tier pauses again. |
 | Create the demo user | `node scripts/create-demo-user.mjs` (needs `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` in `.env.local`). Not yet run. Demo email is `demo@advishopping.app`; password is in `.env.local` only. |
 | Rebuild after env change | `NEXT_PUBLIC_*` values are baked at build time. |
 | Render env vars | Add `NEXT_PUBLIC_DEMO_EMAIL`, `NEXT_PUBLIC_DEMO_PASSWORD` (and `DISABLE_RERANKER=true` on the 512 MB tier), then **Manual Deploy → Clear build cache & deploy**. |
@@ -240,13 +241,17 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 7. **Eval data is generated** (`scripts/make-sample-docs.mjs`) and deliberately varied (US/EU number formats, $ € £, different date styles, no-tax receipt, no-price datasheet). Regenerate with `npm run extract:samples`; never hand-edit expected JSON to flatter results.
 8. **Provider outages are not extraction failures.** `callModel` retries 5xx responses (e.g. Groq 503 *over capacity*) with backoff (1 s, 2.5 s); if it still fails it throws `UpstreamUnavailableError` and the route answers HTTP 503 *"AI model is temporarily unavailable"*. These retries are NOT repair attempts (`attempts` stays 1). Unit-tested in `doc-extract.test.ts`; `eval-extraction.mjs` also waits and retries on 429/503 so an outage is never scored as a wrong answer.
 
+### Dependency overrides (do not remove casually)
+
+`package.json` has `"overrides": { "sharp": "0.35.5", "protobufjs": "^7.6.6" }`. `@xenova/transformers@2.17.2` pins `sharp@0.32` (libvips CVEs; it decodes **user-uploaded images** in visual search) and `onnx-proto → protobufjs@6` (critical advisories). The overrides fixed both and were verified end to end (hybrid search, CLIP visual search, chat, extraction). A scoped override (`"@xenova/transformers": {"sharp": …}`) did NOT take effect; the flat form does. After any dependency change run `npm audit --omit=dev` (expect 0 critical) and re-test `/api/image-search`. Remaining advisory: a `postcss` copy pinned inside Next (build-time only). Long-term: migrate to `@huggingface/transformers` v3.
+
 ## 10. Known issues / TODO (prioritized)
 
 1. Set the demo env vars on Render and create the demo user (see Outstanding table above).
 2. **Cart badge doesn't refresh after the agent adds items** — the agent writes server-side; `CartContext` isn't notified. Fix: expose a `refresh()` in `CartContext` and call it after write/read tool replies in `ChatWidget`.
 3. **`saved_items` lacks an UPDATE RLS policy** while `executeTool` uses `upsert(onConflict …)`; re-saving an existing item may be rejected (unverified). Add an `update` policy to `wishlist.sql` or switch to insert-ignore.
 4. **No `remove_from_cart` / change-quantity tool** for the agent.
-5. **Test coverage is partial.** Vitest covers `doc-schemas`, `doc-checks`, `rate-limit` (36 tests); CI (`.github/workflows/ci.yml`) runs `tsc`, `lint`, `npm test` (not `next build` — it needs Supabase credentials). Still untested: RRF fusion (inside `search-pipeline.ts`) and `isGrounded` / `describeWrites` / `describeReads` (inside `api/chat/route.ts`, which can only export route handlers — move them to `src/lib/` first). No e2e tests.
+5. **Test coverage is partial.** Vitest covers `doc-schemas`, `doc-checks`, `doc-extract` (model mocked), `file-sniff`, `rate-limit` (52 tests across 5 files); CI (`.github/workflows/ci.yml`) runs `tsc`, `lint`, `npm test` (not `next build` — it needs Supabase credentials). Still untested: RRF fusion (inside `search-pipeline.ts`) and `isGrounded` / `describeWrites` / `describeReads` (inside `api/chat/route.ts`, which can only export route handlers — move them to `src/lib/` first). No e2e tests.
 6. **No "Forgot password"**, no CAPTCHA on open sign-up.
 7. **No orders/checkout** (cart can't become an order); button explains payments aren't implemented.
 8. **Rate limiter is per-instance memory** — use Redis/Upstash for multi-instance. IP comes from proxy headers (spoofable).
@@ -267,7 +272,7 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 6. Headers: `curl -sI /` shows CSP, `X-Frame-Options`, etc. Home HTML < ~150 KB and contains **0** occurrences of `embedding`.
 7. RLS: anon REST call to `/rest/v1/cart_items` returns `[]`.
 8. Mobile: 375 px viewport, no horizontal overflow, hamburger works, chat fits.
-9. Document AI: `npm test` (45 pass); with the app running, `BASE_URL=http://localhost:3100 npm run eval:extract` → 13/13 correct, `invoice-trap` flagged, 0 false alarms (needs `GROQ_API_KEY`; ~9 min because documents are spaced for the free-tier token limits). Quick manual check: open `/extract` and click **Invoice with an error** — expect the amber *Needs human review* banner.
+9. Document AI: `npm test` (52 pass); with the app running, `BASE_URL=http://localhost:3100 npm run eval:extract` → 13/13 correct, `invoice-trap` flagged, 0 false alarms (needs `GROQ_API_KEY`; ~9 min because documents are spaced for the free-tier token limits). Quick manual check: open `/extract` and click **Invoice with an error** — expect the amber *Needs human review* banner.
 
 ---
 
