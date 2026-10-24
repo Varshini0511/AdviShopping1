@@ -93,13 +93,14 @@ Key parameters: `RRF_K = 60`, `SHORTLIST = 10`, `TOP_RESULTS = 6`, `RERANK_CONFI
 
 Implemented in [`src/app/api/chat/route.ts`](src/app/api/chat/route.ts) and [`src/lib/chat-tools.ts`](src/lib/chat-tools.ts).
 
-The model **never touches the database**. It can only emit a structured request for one of seven declared tools; the server validates and executes it.
+The model **never touches the database**. It can only emit a structured request for one of eight declared tools; the server validates and executes it.
 
 | Tool | Action |
 |---|---|
 | `search_products` | hybrid search (keyword + semantic) |
 | `get_product_details` | specs, rating and price range for one product — lets the agent *compare* candidates |
 | `add_to_cart` | insert/update `cart_items` |
+| `remove_from_cart` | delete the user's `cart_items` rows for a product |
 | `add_to_wishlist` / `save_for_later` | upsert `saved_items` |
 | `view_cart` / `view_saved` | read the signed-in user's lists |
 
@@ -240,9 +241,10 @@ Authentication is **Supabase Auth** (email + password).
 
 - **Sign up / Sign in** — one card on `/login`, toggled by a link (also reachable from the navbar *Sign up* link, `/login?mode=signup`).
 - **Try the demo** — a one-click shared account so visitors can use the cart and agent without registering. It only appears when `NEXT_PUBLIC_DEMO_EMAIL` and `NEXT_PUBLIC_DEMO_PASSWORD` are set. Each demo session starts from an empty cart/wishlist.
+- **Forgot password** — *Forgot password?* on the sign-in card (or `/login?mode=reset`) emails a one-time link to `/reset-password`, where the user chooses a new password. The response is identical whether or not the address has an account, so the form can't be used to discover who is registered. The link works once, lasts about an hour, and must be opened in the **same browser** that requested it; otherwise the page says so and offers a new link.
 - **Email confirmation** — if *Confirm email* is on in Supabase, new users must click the emailed link (handled by `/callback`). The login page detects *"Email not confirmed"* and offers **Resend confirmation email**.
 
-For a frictionless public demo, turn off **Confirm email** (Supabase → Authentication → Sign In / Providers → Email). If you keep it on, add your site URL and `…/callback` to **Authentication → URL Configuration**.
+For a frictionless public demo, turn off **Confirm email** (Supabase → Authentication → Sign In / Providers → Email). If you keep it on, add your site URL and `…/callback` to **Authentication → URL Configuration**. Password-reset links also need **`…/reset-password`** in that list.
 
 Create the demo user once:
 
@@ -325,6 +327,8 @@ src/
     (auth)/callback/          email-confirmation code exchange
     api/chat/                 agent loop + guardrails
     api/image-search/         CLIP similarity endpoint
+    api/health/               uptime/health check (503 when the DB is down) + feature flags
+    reset-password/  privacy/  password reset landing page · plain-language privacy page
     api/extract/              document extraction endpoint (PDF / image / text)
     api/revalidate/           webhook-triggered cache revalidation
     opengraph-image.tsx icon.tsx not-found.tsx error.tsx
@@ -364,7 +368,7 @@ npm install
 | `supabase/wishlist.sql` | `saved_items` (needed by the agent's wishlist tools) |
 | `supabase/image-search.sql` | `image_embedding` column + `image_search` (optional) |
 
-**3. Environment** — create `.env.local` (see [below](#environment-variables)).
+**3. Environment** — copy [`.env.example`](.env.example) to `.env.local` and fill it in (see [below](#environment-variables)).
 
 **4. Embeddings**
 ```bash
@@ -428,7 +432,7 @@ node scripts/create-demo-user.mjs
 
 ## Testing & CI
 
-**Unit tests** — `npm test` runs 52 [Vitest](https://vitest.dev) tests across five files, in about half a second and with no network or API key:
+**Unit tests** — `npm test` runs 72 [Vitest](https://vitest.dev) tests across seven files, in about half a second and with no network or API key:
 
 | File | Covers |
 |---|---|
@@ -436,6 +440,8 @@ node scripts/create-demo-user.mjs
 | `doc-checks.test.ts` | the arithmetic cross-checks (items vs subtotal, subtotal + tax vs total, qty × unit) and the confidence/review scoring |
 | `doc-extract.test.ts` | the extraction engine with the **model mocked**: clean answer, the one-shot repair retry, giving up after one repair, non-JSON replies, non-documents, `<think>`/code-fence stripping, and **503 backoff** (recovers, or fails with a clear error) |
 | `file-sniff.test.ts` | content-based file-type detection: PDF/PNG/JPEG/WebP signatures, and that an SVG or HEIF disguised as an image is **not** accepted |
+| `chat-tools.test.ts` | the agent's **database writes** with a fake client: add/update/remove cart rows, wishlist upsert (`ignoreDuplicates`), login guards, "never claim success on a failed write", and that the **user comes from the session, never from model-supplied arguments** |
+| `api/health/route.test.ts` | `/api/health` returns 200/503 correctly (including when the database host doesn't resolve), reports feature flags, leaks no secrets, and is rate limited |
 | `rate-limit.test.ts` | per-key budgets, window reset, client-IP detection, the 429 response |
 
 Not covered by unit tests: the search pipeline's fusion maths and the agent's grounding check (both live inside files that can't export helpers yet) and any browser-level flow. Retrieval quality is measured separately by `npm run evaluate`, and document extraction by `npm run eval:extract`.
@@ -470,6 +476,16 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 
 ---
 
+**Keep it warm and get alerted (free).** A free Render instance sleeps after ~15 minutes idle, so the first visit afterwards can take about a minute. Point a free uptime monitor (e.g. [UptimeRobot](https://uptimerobot.com), 5-minute interval) at **`/api/health`**. It both keeps the instance awake and alerts you when something breaks, because that endpoint returns **HTTP 503 when the database is unreachable** (an ordinary page returns 200 even with an empty catalog). The JSON also states which features are switched on in this deployment:
+
+```json
+{ "status": "ok", "db": "ok",
+  "features": { "llm": true, "reranker": false, "visualSearch": false, "documentAI": true },
+  "latencyMs": 364, "uptimeSeconds": 12 }
+```
+
+It returns booleans only (no keys, URLs or versions) and is rate limited per IP.
+
 **Free-tier gotcha: Supabase pauses idle projects.** After about a week without activity the project is paused and its hostname stops resolving (`nslookup <project>.supabase.co` returns *non-existent domain*); the site then shows *"We couldn't load the catalog"*. Fix: Supabase dashboard → the project → **Restore**. Prevent it with the daily keep-alive workflow (see Testing & CI). Document extraction does not use the database, so it keeps working during an outage.
 
 ---
@@ -484,6 +500,7 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 - **Rate limiting** — `/api/chat` (12 requests/min) and `/api/image-search` (10 requests/min) are limited per client IP and return `429` with a `Retry-After` header, so a script can't drain the Groq quota or the host's CPU.
 - **Document uploads** — `/api/extract` rate-limits per IP (6/min), caps files at 5 MB, and checks the file's **actual leading bytes** (a renamed `.exe` is rejected, whatever MIME type it claims). Files are processed in memory and never stored. Document text is treated as untrusted: the prompt says to ignore instructions inside it, the model has no tools there, and its output must pass a strict schema before anything is shown.
 - **Upload validation** — image search accepts only JPG/PNG/WebP up to 5 MB. The type is decided from the file's **actual bytes** (shared `file-sniff.ts`), not the client-declared MIME type: the image decoder (`sharp`/libvips) goes by content, so an SVG or HEIF labelled `image/png` would otherwise reach it. Oversized requests are rejected from `Content-Length` *before* the body is buffered and re-checked after parsing; the same rules run client-side for a faster message.
+- **Privacy** — [`/privacy`](/privacy) states plainly what the demo stores and which third parties (Render, Supabase, Groq) see data; it is written from what the code actually does and should be kept in sync with it.
 - **Dependency security** — `npm audit --omit=dev` reports **0 critical**. `next` is kept on a patched 15.5.x. `@xenova/transformers` v2 (the model runtime) pins old copies of `sharp` and `protobufjs`; `package.json` `overrides` force the patched `sharp` 0.35.5 and `protobufjs` 7.6.x — **do not remove them** without re-running `npm audit` and the visual-search test. One advisory remains (a `postcss` copy pinned *inside* Next.js, used only for build-time CSS; no user input reaches it); it clears when Next updates its pin.
 - **Security headers** — `Content-Security-Policy` (restricts script/connection/frame/form targets; `frame-ancestors 'none'`, `object-src 'none'`), `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy` (microphone for voice only), and HSTS.
 - **No internal data leakage** — list and detail pages select explicit columns, so embedding vectors (~6 KB each) never reach the browser. This also cut the home page from ~488 KB to ~115 KB.
@@ -504,6 +521,7 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 | Wishlist / save-for-later fail | `saved_items` table missing | Run `supabase/wishlist.sql` |
 | **Email not confirmed** on sign-in | Supabase *Confirm email* is on | Click the emailed link / use **Resend**, or turn off *Confirm email* |
 | Confirmation link lands on an error | URL not allow-listed | Add the site URL and `/callback` to Supabase URL Configuration |
+| Password-reset email link says it is *invalid* | Expired, already used, opened in a different browser, or `/reset-password` not allow-listed | Request a new link and open it in the same browser; add `…/reset-password` to Supabase Redirect URLs |
 | **Try the demo** button missing | Demo env vars not set at build time | Set both `NEXT_PUBLIC_DEMO_*` and rebuild |
 | "Invalid login credentials" on demo | Demo user not created | `node scripts/create-demo-user.mjs` |
 | First search takes a long time | Embedding model loading | Normal after idle; later searches are fast |
@@ -526,7 +544,6 @@ Stated plainly, because they matter:
 
 - **Small catalog (~32 products).** Hybrid and rerank gains are hard to show at this scale; the evaluation says so.
 - **No real checkout.** The button explains that payments aren't implemented; "buy" adds to the cart.
-- **No `remove_from_cart` tool** in the agent yet (the cart page can remove items).
 - **Shared demo account** — two visitors using it at the same moment see the same cart.
 - **Free-tier LLM limits** — a handful of agent messages per minute for the whole deployment.
 - **Rate limiting is in-memory.** It's per server instance, resets on restart, and keys on proxy-supplied client IPs (which can be spoofed). Fine for a single-instance demo; a multi-instance deployment needs a shared store such as Redis.
@@ -540,9 +557,9 @@ Stated plainly, because they matter:
 ## Roadmap
 
 - Shared rate-limit store (Redis/Upstash) and a nonce-based CSP without `'unsafe-inline'`
-- "Forgot password" flow and CAPTCHA/bot protection on sign-up
+- CAPTCHA/bot protection on sign-up and self-service account deletion
 - End-to-end tests (Playwright) for the main flows, and unit tests for the search pipeline's fusion logic and the agent's grounding check (move them out of the route file first)
-- `remove_from_cart` and quantity-change tools for the agent
+- Quantity-change tool for the agent, and orders/order history (without payments)
 - Larger, noisier catalog to make the retrieval ablation more informative
 - Query preprocessing (spelling correction, expansion) and chunking for long descriptions
 - Real checkout with a payment provider's test mode

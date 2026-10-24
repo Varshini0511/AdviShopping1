@@ -26,8 +26,9 @@ honest about its limits (the README has a "Known limitations" section — keep i
 ## 2. Current status (snapshot)
 
 - Branch `main`, remote `https://github.com/Varshini0511/AdviShopping1.git`. Live site: https://advishopping1.onrender.com (Render free tier, auto-deploys from `main`).
-- **Latest work (2026-10-23): Document AI** — `/extract` + `POST /api/extract` extract invoices, receipts and product datasheets (PDF text layer or photo). 52 unit tests pass; **13/13 documents extracted correctly** on the generated eval set (incl. 3 degraded phone photos), the trap invoice with a wrong printed total was flagged for review, 0/12 false alarms; ~0.8 s/doc. Details: README "Document extraction" and §9 "Document extraction invariants". Verified inside the PRODUCTION build (unpdf bundles fine).
+- **Latest work (2026-10-23): Document AI** — `/extract` + `POST /api/extract` extract invoices, receipts and product datasheets (PDF text layer or photo). 72 unit tests pass; **13/13 documents extracted correctly** on the generated eval set (incl. 3 degraded phone photos), the trap invoice with a wrong printed total was flagged for review, 0/12 false alarms; ~0.8 s/doc. Details: README "Document extraction" and §9 "Document extraction invariants". Verified inside the PRODUCTION build (unpdf bundles fine).
 - **Security hygiene (2026-10-24):** `next` upgraded to 15.5.28; `npm audit --omit=dev` = 0 critical; both upload routes verify file type from **bytes** via `src/lib/file-sniff.ts` (an SVG/HEIF labelled image/png is rejected).
+- **Production-readiness pass (2026-10-24):** added `remove_from_cart`; cart badge refreshes after the agent changes the cart (`CartContext.refreshCart`); wishlist re-save no longer needs an UPDATE policy (`ignoreDuplicates`); `/api/health`; forgot-password flow (`/login?mode=reset` → `/reset-password`); `/privacy`; `.env.example`; visual-search "disabled" banner; lint is at 0 warnings. **Supabase Redirect URLs must now include `<site>/reset-password`** (in addition to `<site>/callback`).
 - **CI:** `.github/workflows/ci.yml` runs `tsc`, `lint`, `npm test` on push/PR. **Keep-alive:** `.github/workflows/keepalive.yml` pings the live site daily and FAILS (GitHub emails the owner) if the catalog does not render.
 - **Supabase project:** was found DOWN on 2026-10-23 (`swcixbjrvjszbmpwiwwv.supabase.co` NXDOMAIN, the signature of a paused free-tier project; empty live catalog). It was **restored by 2026-10-24** (hostname resolves, live home page renders 32 products). It WILL pause again after ~1 week idle unless the keep-alive workflow keeps running — check the Actions tab. Check with `nslookup <host> 8.8.8.8`.
 - **Not live yet:** the **Try the demo** button — `NEXT_PUBLIC_DEMO_EMAIL/PASSWORD` are not set on Render (build-time vars: set, then clear-cache redeploy). The demo user also still has to be created.
@@ -102,7 +103,10 @@ src/
     search/page.tsx            runs the pipeline server-side; renders results + stage panel
     product/[id]/page.tsx      detail page (generateStaticParams, notFound, generateMetadata)
     category/[categoryName]/   category listing
-    visual-search/page.tsx     upload UI (client)
+    visual-search/page.tsx     server wrapper: reads DISABLE_VISUAL_SEARCH per request → <VisualSearch disabled/> (components/VisualSearch.tsx)
+    api/health/route.ts        uptime check; 503 when the DB is down; feature flags (booleans only)
+    reset-password/page.tsx    landing page for the password-reset email (exchanges ?code=, then updateUser)
+    privacy/page.tsx           plain-language privacy page (keep in sync with real data flows)
     extract/page.tsx           Document AI UI: samples, upload, fields, confidence, raw JSON
     cart/page.tsx              cart (client, from CartContext)
     (auth)/login/page.tsx      sign in / sign up / demo / resend confirmation
@@ -161,7 +165,7 @@ Invariants — **do not break these**:
 3. **Step 0 uses `tool_choice: 'required'`** (falls back to `'auto'` if the provider 400s). Without it the model answers from memory and invents products.
 4. **`max_tokens = 400`, `MAX_STEPS = 6`.** A "best X and add it" request needs 4 passes (search → `get_product_details` ×3 → add → explain, ≈6k tokens of the 8k/min budget).
 4b. **ReAct trace:** the route returns `{ reply, steps: [{thought?, action, observation}] }` via `respond()`; `ChatWidget` renders it as a `<details>` "How I got this". Thoughts are optional (the model may not write one) and are dropped if `isGrounded()` fails. `COMPOUND_INTENT` includes `best|cheapest|compare|recommend|better` so those requests are explained by the model instead of short-circuited.
-4c. **Seven tools** now: `search_products`, `get_product_details` (specs/rating/price range; its prices feed the guardrail), `add_to_cart`, `add_to_wishlist`, `save_for_later`, `view_cart`, `view_saved`.
+4c. **Eight tools** now (adds `remove_from_cart`; `view_cart` returns `product_id` so the agent can act on what it sees): `search_products`, `get_product_details` (specs/rating/price range; its prices feed the guardrail), `add_to_cart`, `add_to_wishlist`, `save_for_later`, `view_cart`, `view_saved`.
 5. **Grounding guardrail** `isGrounded()`: every `$` amount in a model-written reply must match a price returned by a tool this turn (search results **and** cart unit/line/total prices). Handles `$1,199`. Failure → deterministic fallback; "not in the catalog" wording only if a search actually ran.
 6. **Short-circuits (no extra model pass):**
    - Write tools (`add_to_cart`, `add_to_wishlist`, `save_for_later`) → reply built by `describeWrites()` from the tool result, unless `COMPOUND_INTENT` matches the user text.
@@ -248,16 +252,15 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 ## 10. Known issues / TODO (prioritized)
 
 1. Set the demo env vars on Render and create the demo user (see Outstanding table above).
-2. **Cart badge doesn't refresh after the agent adds items** — the agent writes server-side; `CartContext` isn't notified. Fix: expose a `refresh()` in `CartContext` and call it after write/read tool replies in `ChatWidget`.
-3. **`saved_items` lacks an UPDATE RLS policy** while `executeTool` uses `upsert(onConflict …)`; re-saving an existing item may be rejected (unverified). Add an `update` policy to `wishlist.sql` or switch to insert-ignore.
-4. **No `remove_from_cart` / change-quantity tool** for the agent.
-5. **Test coverage is partial.** Vitest covers `doc-schemas`, `doc-checks`, `doc-extract` (model mocked), `file-sniff`, `rate-limit` (52 tests across 5 files); CI (`.github/workflows/ci.yml`) runs `tsc`, `lint`, `npm test` (not `next build` — it needs Supabase credentials). Still untested: RRF fusion (inside `search-pipeline.ts`) and `isGrounded` / `describeWrites` / `describeReads` (inside `api/chat/route.ts`, which can only export route handlers — move them to `src/lib/` first). No e2e tests.
-6. **No "Forgot password"**, no CAPTCHA on open sign-up.
-7. **No orders/checkout** (cart can't become an order); button explains payments aren't implemented.
-8. **Rate limiter is per-instance memory** — use Redis/Upstash for multi-instance. IP comes from proxy headers (spoofable).
-9. **CSP `'unsafe-inline'`** — move to nonces via middleware.
-10. Housekeeping: unused dep `@supabase/auth-ui-shared`; the "Dynamic server usage" log during `next build` for `/` is benign noise; the headphones product photo shows earbuds; no `LICENSE` (owner must choose the holder).
-11. Catalog is tiny (~32) so hybrid/rerank gains are hard to show — documented honestly in the README's evaluation section.
+2. **Visual search is switched OFF on the live deployment** (`DISABLE_VISUAL_SEARCH=true` on Render because the CLIP model needs ~150 MB). `/visual-search` and the home card now say so up front. Remove the flag only if the instance has the RAM (check `/api/health`), then re-test `/api/image-search`.
+3. **Add a free uptime monitor** (UptimeRobot, 5 min) on `/api/health`: it keeps the free host awake (a cold first visit measured ~47 s) and alerts on a DB outage (503). Not done yet — needs the owner's account.
+4. **Test coverage is partial.** Vitest covers `doc-schemas`, `doc-checks`, `doc-extract` (model mocked), `file-sniff`, `chat-tools` (agent DB writes via a fake client), `/api/health`, `rate-limit` (72 tests across 7 files); CI (`.github/workflows/ci.yml`) runs `tsc`, `lint`, `npm test` (not `next build` — it needs Supabase credentials). Still untested: RRF fusion (inside `search-pipeline.ts`) and `isGrounded` / `describeWrites` / `describeReads` (inside `api/chat/route.ts`, which can only export route handlers — move them to `src/lib/` first). No e2e tests.
+5. **No CAPTCHA on open sign-up** and no self-service account deletion (privacy page tells people to open a GitHub issue).
+6. **No orders/checkout** (cart can't become an order); button explains payments aren't implemented.
+7. **Rate limiter is per-instance memory** — use Redis/Upstash for multi-instance. IP comes from proxy headers (spoofable).
+8. **CSP `'unsafe-inline'`** — move to nonces via middleware.
+9. Housekeeping: the "Dynamic server usage" log during `next build` for `/` is benign noise; the headphones product photo shows earbuds; no `LICENSE` (owner must choose the holder).
+10. Catalog is tiny (~32) so hybrid/rerank gains are hard to show — documented honestly in the README's evaluation section.
 
 ---
 
@@ -272,7 +275,7 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 6. Headers: `curl -sI /` shows CSP, `X-Frame-Options`, etc. Home HTML < ~150 KB and contains **0** occurrences of `embedding`.
 7. RLS: anon REST call to `/rest/v1/cart_items` returns `[]`.
 8. Mobile: 375 px viewport, no horizontal overflow, hamburger works, chat fits.
-9. Document AI: `npm test` (52 pass); with the app running, `BASE_URL=http://localhost:3100 npm run eval:extract` → 13/13 correct, `invoice-trap` flagged, 0 false alarms (needs `GROQ_API_KEY`; ~9 min because documents are spaced for the free-tier token limits). Quick manual check: open `/extract` and click **Invoice with an error** — expect the amber *Needs human review* banner.
+9. Document AI: `npm test` (72 pass); with the app running, `BASE_URL=http://localhost:3100 npm run eval:extract` → 13/13 correct, `invoice-trap` flagged, 0 false alarms (needs `GROQ_API_KEY`; ~9 min because documents are spaced for the free-tier token limits). Quick manual check: open `/extract` and click **Invoice with an error** — expect the amber *Needs human review* banner.
 
 ---
 
