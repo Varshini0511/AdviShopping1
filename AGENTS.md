@@ -238,6 +238,7 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 5. **Untrusted input:** file type is decided by **magic bytes** (`sniff()`), not the client MIME; size ≤ 5 MB checked from `Content-Length` first; files are never stored; the prompt tells the model to ignore instructions inside the document; the model has no tools on this path.
 6. **Free-tier limits:** ~1,000 *output* tokens/min and 8,000 total/min on Groq → ~1–2 docs/min. `MAX_OUTPUT_TOKENS = 900`; the eval script spaces documents ~40 s apart.
 7. **Eval data is generated** (`scripts/make-sample-docs.mjs`) and deliberately varied (US/EU number formats, $ € £, different date styles, no-tax receipt, no-price datasheet). Regenerate with `npm run extract:samples`; never hand-edit expected JSON to flatter results.
+8. **Provider outages are not extraction failures.** `callModel` retries 5xx responses (e.g. Groq 503 *over capacity*) with backoff (1 s, 2.5 s); if it still fails it throws `UpstreamUnavailableError` and the route answers HTTP 503 *"AI model is temporarily unavailable"*. These retries are NOT repair attempts (`attempts` stays 1). Unit-tested in `doc-extract.test.ts`; `eval-extraction.mjs` also waits and retries on 429/503 so an outage is never scored as a wrong answer.
 
 ## 10. Known issues / TODO (prioritized)
 
@@ -266,6 +267,7 @@ Tailwind v4 utility classes; dark theme (slate/indigo). Keep copy honest — no 
 6. Headers: `curl -sI /` shows CSP, `X-Frame-Options`, etc. Home HTML < ~150 KB and contains **0** occurrences of `embedding`.
 7. RLS: anon REST call to `/rest/v1/cart_items` returns `[]`.
 8. Mobile: 375 px viewport, no horizontal overflow, hamburger works, chat fits.
+9. Document AI: `npm test` (45 pass); with the app running, `BASE_URL=http://localhost:3100 npm run eval:extract` → 13/13 correct, `invoice-trap` flagged, 0 false alarms (needs `GROQ_API_KEY`; ~9 min because documents are spaced for the free-tier token limits). Quick manual check: open `/extract` and click **Invoice with an error** — expect the amber *Needs human review* banner.
 
 ---
 

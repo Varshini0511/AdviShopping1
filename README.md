@@ -11,7 +11,7 @@ A full-stack e-commerce demo built around four AI capabilities that go well beyo
 > Hosted on a free tier, so the first visit after idle can take up to a minute to wake up.
 > Browsing and search are public. Sign up (or use the one-click demo login when it is enabled) to use the cart and the agent.
 
-Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgvector + Auth) · Transformers.js · Groq**.
+Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgvector + Auth) · Transformers.js · Groq · Zod · unpdf · Vitest**.
 
 ---
 
@@ -31,6 +31,7 @@ Built with **Next.js 15 · TypeScript · Tailwind v4 · Supabase (Postgres + pgv
 - [Run locally](#run-locally)
 - [Environment variables](#environment-variables)
 - [Scripts](#scripts)
+- [Testing & CI](#testing--ci)
 - [Deployment](#deployment)
 - [Security notes](#security-notes)
 - [Troubleshooting](#troubleshooting)
@@ -272,19 +273,20 @@ Checked in a 375 × 812 viewport: no horizontal overflow on Home, Search, Produc
 ```
 Browser ──▶ Next.js 15 (Server Components + Route Handlers)
                 │
-   ┌────────────┼──────────────────────┬─────────────────────┐
-   ▼            ▼                      ▼                     ▼
- /search     /api/chat          /api/image-search       /cart · /login
-   │            │                      │
- search-      agent loop            CLIP embed
- pipeline.ts  (chat-tools.ts)    (image-embeddings.ts)
-   │            │                      │
-   └────────────┴──── Supabase (Postgres + pgvector + Auth, RLS) ───┘
+   ┌────────────┼──────────────────┬─────────────────────┬────────────────────┬────────────┐
+   ▼            ▼                  ▼                     ▼                    ▼            ▼
+ /search     /api/chat       /api/image-search      /api/extract          /cart · /login  /extract
+   │            │                  │                     │                              (UI)
+ search-      agent loop        CLIP embed        doc-extract.ts
+ pipeline.ts  (chat-tools.ts)  (image-embeddings.ts)  validate → repair → cross-check
+   │            │                  │                     │
+   └────────────┴──── Supabase (Postgres + pgvector + Auth, RLS) ──┘   (/api/extract never touches the DB)
                          │
-                      Groq API  (stage 6 summary + agent)
+                      Groq API  (stage-6 summary · agent · document extraction)
 
-ML models run in-process via Transformers.js (no external API):
+Text/image models run in-process via Transformers.js (no external API):
   gte-small · ms-marco-MiniLM-L-6-v2 · clip-vit-base-patch32
+Document AI: PDF text layers are read with unpdf; photos go straight to the multimodal Groq model (no OCR).
 ```
 
 - **Server Components** fetch and rank on the server; only interactive pieces (navbar, cart, chat, product variant picker) are client components.
@@ -424,6 +426,28 @@ node scripts/create-demo-user.mjs
 
 ---
 
+## Testing & CI
+
+**Unit tests** — `npm test` runs 45 [Vitest](https://vitest.dev) tests across four files, in about half a second and with no network or API key:
+
+| File | Covers |
+|---|---|
+| `doc-schemas.test.ts` | normalisation of `"$1,234.50"`, European `"1.234,50"`, `"March 5, 2025"`, currency symbols; schema accept/reject cases |
+| `doc-checks.test.ts` | the arithmetic cross-checks (items vs subtotal, subtotal + tax vs total, qty × unit) and the confidence/review scoring |
+| `doc-extract.test.ts` | the extraction engine with the **model mocked**: clean answer, the one-shot repair retry, giving up after one repair, non-JSON replies, non-documents, `<think>`/code-fence stripping, and **503 backoff** (recovers, or fails with a clear error) |
+| `rate-limit.test.ts` | per-key budgets, window reset, client-IP detection, the 429 response |
+
+Not covered by unit tests: the search pipeline's fusion maths and the agent's grounding check (both live inside files that can't export helpers yet) and any browser-level flow. Retrieval quality is measured separately by `npm run evaluate`, and document extraction by `npm run eval:extract`.
+
+**CI** — [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs typecheck (`tsc`), lint and the unit tests on every push and pull request. It deliberately does not run `next build`: the build pre-renders product pages from Supabase and needs real credentials, which the deploy platform has and CI doesn't.
+
+**Keep-alive & smoke test** — [`.github/workflows/keepalive.yml`](.github/workflows/keepalive.yml) visits the live site once a day. Two reasons:
+
+1. **Supabase's free tier pauses a project after about a week without activity.** A paused project's hostname stops resolving, and the site then shows an empty catalog. This has already happened to this project. Rendering the home page queries Supabase, so a daily visit counts as activity.
+2. **It is a smoke test.** The page returns HTTP 200 even when the database is down (it shows an error message instead of products), so the job checks that real product links are present and **fails if they aren't**, which makes GitHub email the repository owner.
+
+Scheduled workflows stop after 60 days without repository activity; re-enable it from the Actions tab if that happens.
+
 ## Deployment
 
 The app loads ML models into the Node process, so it needs a **persistent host** (Render, Railway, Fly) rather than short-lived serverless functions — a cold model load takes 15–40 s, which exceeds typical serverless limits (e.g. Vercel Hobby's 10 s).
@@ -442,6 +466,10 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 **Memory-constrained hosts (≈512 MB free tier).** Set `DISABLE_RERANKER=true` and, if needed, `DISABLE_VISUAL_SEARCH=true`. Models load lazily, so a skipped feature's model is never loaded at all. Text search, filters and the agent keep working.
 
 **Cold starts.** Free tiers sleep when idle, so the first visit can take up to a minute. The search loading screen says so, and the embedding model is preloaded at startup to shorten it.
+
+---
+
+**Free-tier gotcha: Supabase pauses idle projects.** After about a week without activity the project is paused and its hostname stops resolving (`nslookup <project>.supabase.co` returns *non-existent domain*); the site then shows *"We couldn't load the catalog"*. Fix: Supabase dashboard → the project → **Restore**. Prevent it with the daily keep-alive workflow (see Testing & CI). Document extraction does not use the database, so it keeps working during an outage.
 
 ---
 
@@ -467,6 +495,9 @@ Then add the deployed URL (and `…/callback`) to **Supabase → Authentication 
 | Chat says *"assistant is busy (free-tier rate limit)"* | Groq's per-minute token limit | Wait a few seconds; consider a paid tier or a different `GROQ_MODEL` |
 | *"You're sending requests too quickly"* | The app's own per-IP limit (chat 12/min, image search 10/min) | Wait for the `Retry-After` interval |
 | Image search says *"Unsupported file type"* / *"too large"* | Upload validation | Use a JPG, PNG or WebP under 5 MB |
+| Home page says *"We couldn't load the catalog"*, no products | Supabase project paused (its hostname no longer resolves) | Dashboard → **Restore project**; the keep-alive workflow prevents a repeat |
+| Document AI says *"AI model is temporarily unavailable"* | The model provider returned a 5xx (overloaded). The app already retried with backoff. | Wait a minute and retry |
+| Document AI says the PDF *"has no readable text"* | A scanned PDF (no text layer) | Upload a photo or screenshot of it as PNG/JPG instead |
 | `Chat agent request failed`, logs show `model_not_found` | Groq retired the model | Set `GROQ_MODEL` to a current model — no code change |
 | Wishlist / save-for-later fail | `saved_items` table missing | Run `supabase/wishlist.sql` |
 | **Email not confirmed** on sign-in | Supabase *Confirm email* is on | Click the emailed link / use **Resend**, or turn off *Confirm email* |
