@@ -1,7 +1,8 @@
 // src/components/ChatWidget.tsx
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useContext } from 'react';
+import { CartContext } from '@/context/CartContext';
 
 // One Thought → Action → Observation step of the agent's ReAct loop (from /api/chat).
 type Step = { thought?: string; action: string; observation: string };
@@ -51,6 +52,7 @@ export default function ChatWidget() {
   const [voiceSupported, setVoiceSupported] = useState(false);
 
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const { refreshCart } = useContext(CartContext);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -103,6 +105,11 @@ export default function ChatWidget() {
         const data = await res.json();
         const reply = data.reply || data.error || 'Something went wrong.';
         setMessages([...next, { role: 'assistant', content: reply, steps: data.steps }]);
+        // The agent writes to the cart on the SERVER, so the page's cart state (navbar
+        // badge, /cart) doesn't know. If it touched the cart, re-read it.
+        const touchedCart =
+          Array.isArray(data.steps) && data.steps.some((s: Step) => /^(add_to_cart|remove_from_cart)\(/.test(s.action));
+        if (touchedCart) void refreshCart();
         if (viaVoice) speak(reply);
       } catch {
         const reply = 'Sorry, I had trouble reaching the assistant.';
@@ -112,7 +119,7 @@ export default function ChatWidget() {
         setLoading(false);
       }
     },
-    [input, loading, messages, speak]
+    [input, loading, messages, speak, refreshCart]
   );
 
   const stopListening = useCallback(() => {

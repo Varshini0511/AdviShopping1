@@ -1,7 +1,7 @@
 // context/CartContext.tsx
 'use client';
 
-import { createContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { createClientComponentClient } from '@supabase/auth-helpers-nextjs';
 
 // --- Define the correct, nested types for your data ---
@@ -34,6 +34,8 @@ type CartContextType ={
   decreaseQuantity: (cartItemId: number) => Promise<void>;
   getCartTotal: () => number;
   getCartItemCount: () => number;
+  /** Re-read the cart from the database without a loading flash (e.g. after the chat agent changed it). */
+  refreshCart: () => Promise<void>;
 }
 
 export const CartContext = createContext<CartContextType>({
@@ -45,6 +47,7 @@ export const CartContext = createContext<CartContextType>({
   decreaseQuantity: async () => {},
   getCartTotal: () => 0,
   getCartItemCount: () => 0,
+  refreshCart: async () => {},
 });
 
 export function CartProvider({ children }: { children: ReactNode }) {
@@ -52,14 +55,15 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchCart = async () => {
+  // showLoading=false keeps the current cart on screen while it re-fetches.
+  const fetchCart = useCallback(async (showLoading = true) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {
       setCart([]);
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (showLoading) setLoading(true);
     // CORRECTED QUERY: Fetches cart_items, their variants, and the base product info
     const { data, error } = await supabase
       .from('cart_items')
@@ -71,10 +75,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
       console.error('Error fetching cart:', error);
     } else {
       setCart(data || []);
-        
     }
     setLoading(false);
-  };
+  }, [supabase]);
+
+  const refreshCart = useCallback(() => fetchCart(false), [fetchCart]);
 
   useEffect(() => {
     fetchCart();
@@ -84,7 +89,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => subscription.unsubscribe();
-  }, [supabase]);
+  }, [supabase, fetchCart]);
 
   // CORRECTED FUNCTION: Takes a variantId and quantity
   // Reports what actually happened so the caller can show a truthful message
@@ -173,7 +178,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <CartContext value={{ cart, loading, addToCart, removeFromCart, increaseQuantity, decreaseQuantity, getCartTotal, getCartItemCount }}>
+    <CartContext value={{ cart, loading, addToCart, removeFromCart, increaseQuantity, decreaseQuantity, getCartTotal, getCartItemCount, refreshCart }}>
       {children}
     </CartContext>
   );

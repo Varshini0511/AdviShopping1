@@ -59,6 +59,18 @@ export const TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'remove_from_cart',
+      description: 'Remove a product from the cart. Needs a product_id from search_products.',
+      parameters: {
+        type: 'object',
+        properties: { product_id: { type: 'number' } },
+        required: ['product_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_to_wishlist',
       description: 'Save a product to the wishlist (browsing, no purchase intent).',
       parameters: {
@@ -100,7 +112,7 @@ export const TOOLS = [
 
 // Tools that change data. After one of these succeeds (or fails) there is
 // nothing left for the model to decide, so the route can answer directly.
-export const WRITE_TOOLS = new Set(['add_to_cart', 'add_to_wishlist', 'save_for_later']);
+export const WRITE_TOOLS = new Set(['add_to_cart', 'remove_from_cart', 'add_to_wishlist', 'save_for_later']);
 
 // Read-only views of the user's own data. Their output is complete and exact,
 // so the route can render it directly instead of asking the model to paraphrase.
@@ -258,6 +270,35 @@ export async function executeTool(
       });
     }
 
+    case 'remove_from_cart': {
+      if (!userId) return JSON.stringify({ error: 'User is not logged in. Ask them to log in first.' });
+      const productId = Number(args.product_id);
+      if (!productId) return JSON.stringify({ error: 'Missing product_id.' });
+
+      // Look first, so we can tell "nothing to remove" apart from "removed" (a
+      // delete that matches zero rows is not an error to the database).
+      const { data: rows, error: findError } = await supabase
+        .from('cart_items')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('product_id', productId);
+      if (findError) return JSON.stringify({ error: `Could not read the cart: ${findError.message}` });
+      if (!rows || rows.length === 0) return JSON.stringify({ error: "That item isn't in the cart." });
+
+      const { error: deleteError } = await supabase
+        .from('cart_items')
+        .delete()
+        .eq('user_id', userId)
+        .eq('product_id', productId);
+      if (deleteError) return JSON.stringify({ error: `Could not remove from cart: ${deleteError.message}` });
+      return JSON.stringify({
+        success: true,
+        product_id: productId,
+        name: await productName(supabase, productId),
+        removed: rows.length,
+      });
+    }
+
     case 'add_to_wishlist':
     case 'save_for_later': {
       if (!userId) return JSON.stringify({ error: 'User is not logged in. Ask them to log in first.' });
@@ -266,7 +307,14 @@ export async function executeTool(
       const kind = name === 'add_to_wishlist' ? 'wishlist' : 'saved_for_later';
       const { error } = await supabase
         .from('saved_items')
-        .upsert({ user_id: userId, product_id: productId, kind }, { onConflict: 'user_id,product_id,kind' });
+        // ignoreDuplicates => ON CONFLICT DO NOTHING: saving an item that is already
+        // saved is a no-op and only needs INSERT permission. A plain upsert would be
+        // ON CONFLICT DO UPDATE, which row-level security rejects here because
+        // saved_items has no UPDATE policy.
+        .upsert(
+          { user_id: userId, product_id: productId, kind },
+          { onConflict: 'user_id,product_id,kind', ignoreDuplicates: true }
+        );
       if (error) return JSON.stringify({ error: error.message });
       return JSON.stringify({
         success: true,
@@ -280,7 +328,9 @@ export async function executeTool(
       if (!userId) return JSON.stringify({ error: 'User is not logged in.' });
       const { data } = await supabase
         .from('cart_items')
-        .select('quantity, product_variants(price, products(name))')
+        // product_id is included so the agent can act on an item it sees here
+        // (e.g. remove_from_cart) without a separate search to find its id.
+        .select('quantity, product_id, product_variants(price, products(name))')
         .eq('user_id', userId);
       return JSON.stringify(data ?? []);
     }

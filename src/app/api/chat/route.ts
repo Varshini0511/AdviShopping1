@@ -58,7 +58,7 @@ Rules:
 - Call search_products at most once per request; reuse its product_ids afterwards.
 - "best / cheapest / compare / which" requests: after searching, call get_product_details for up to 3 top candidates (all in the same step), choose using their specs and ratings, then act. In your final reply say in one sentence why you chose it, using only facts from the tool results.
 - Browsing/searching (no add/buy/save/wishlist verb): name the matching product(s) with price, then stop.
-- Add/buy/save/wishlist: search once (compare first if asked for the "best"), then call the matching tool (add_to_cart / add_to_wishlist / save_for_later) with the chosen product_id, then report what you did.
+- Add/buy/save/wishlist/remove: search once (compare first if asked for the "best"), then call the matching tool (add_to_cart / remove_from_cart / add_to_wishlist / save_for_later) with the chosen product_id, then report what you did.
 - "buy"/"purchase": there is no payment processing — call add_to_cart and tell them to review it at checkout. Never claim a purchase completed.
 - If a tool says the user is not logged in, tell them to log in.
 - CRITICAL: only mention product names and prices that appear exactly in a tool result from this conversation — never from your own knowledge. If nothing relevant was found, say so.
@@ -138,11 +138,13 @@ function describeWrites(outcomes: ToolOutcome[]): string {
         const priceText = Number.isFinite(price) ? ` ($${price.toFixed(2)}${qty > 1 ? ' each' : ''})` : '';
         return `Added ${qty > 1 ? `${qty} × ` : ''}${name}${priceText} to your cart.`;
       }
+      if (tool === 'remove_from_cart') return `Removed ${name} from your cart.`;
       return tool === 'add_to_wishlist' ? `Saved ${name} to your wishlist.` : `Saved ${name} for later.`;
     }
     if (/not logged in/i.test(String(result.error ?? ''))) {
       return "Please log in first — I can only change your cart or wishlist when you're signed in.";
     }
+    if (/isn.t in the cart/i.test(String(result.error ?? ''))) return "That item isn't in your cart.";
     return "Sorry, I couldn't do that just now. Please try again in a moment.";
   });
   return [...new Set(lines)].join(' ');
