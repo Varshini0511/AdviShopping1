@@ -7,13 +7,13 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { embedImageBlob } from '@/lib/image-embeddings';
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit';
+import { IMAGE_MIME, isImageKind, sniffFileKind } from '@/lib/file-sniff';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB — plenty for a product photo
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024; // form boundaries / field headers
-const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const IMAGE_REQUESTS_PER_MINUTE = 10;
 
 const CARD_COLUMNS =
@@ -58,14 +58,19 @@ export async function POST(request: Request) {
         { status: 413 }
       );
     }
-    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+    // Decide the type from the file's actual bytes, NOT file.type: that is
+    // client-controlled, while the image decoder (sharp/libvips) goes by content,
+    // so an SVG or HEIF labelled "image/png" would otherwise reach it.
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const kind = sniffFileKind(bytes);
+    if (!isImageKind(kind)) {
       return NextResponse.json(
         { error: 'Unsupported file type. Please upload a JPG, PNG or WebP image.' },
         { status: 415 }
       );
     }
 
-    const embedding = await embedImageBlob(file);
+    const embedding = await embedImageBlob(new Blob([bytes], { type: IMAGE_MIME[kind] }));
 
     const supabase = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

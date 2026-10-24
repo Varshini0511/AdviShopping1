@@ -14,6 +14,7 @@ import { NextResponse } from 'next/server';
 import { extractDocument, RateLimitedError, UpstreamUnavailableError, type ExtractInput } from '@/lib/doc-extract';
 import { DocumentError, pdfToText } from '@/lib/pdf-text';
 import { rateLimit, clientIp, tooManyRequests } from '@/lib/rate-limit';
+import { IMAGE_MIME, isImageKind, sniffFileKind } from '@/lib/file-sniff';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -22,30 +23,6 @@ const MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
 const REQUESTS_PER_MINUTE = 6;
 const MAX_TEXT_CHARS = 12_000;
-
-type Kind = 'pdf' | 'png' | 'jpeg' | 'webp' | 'text';
-
-/** What the bytes actually are, regardless of what the client claimed. */
-function sniff(b: Uint8Array): Kind | null {
-  const startsWith = (...sig: number[]) => sig.every((v, i) => b[i] === v);
-  if (startsWith(0x25, 0x50, 0x44, 0x46)) return 'pdf'; // %PDF
-  if (startsWith(0x89, 0x50, 0x4e, 0x47)) return 'png';
-  if (startsWith(0xff, 0xd8, 0xff)) return 'jpeg';
-  // WEBP = "RIFF" .... "WEBP"
-  if (startsWith(0x52, 0x49, 0x46, 0x46) && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50) {
-    return 'webp';
-  }
-  // Plain text: no NUL bytes in the first chunk.
-  const head = b.subarray(0, 1024);
-  if (head.length > 0 && !head.includes(0)) return 'text';
-  return null;
-}
-
-const MIME_FOR: Record<Exclude<Kind, 'pdf' | 'text'>, string> = {
-  png: 'image/png',
-  jpeg: 'image/jpeg',
-  webp: 'image/webp',
-};
 
 const fail = (error: string, status: number) => NextResponse.json({ error }, { status });
 
@@ -71,21 +48,22 @@ export async function POST(request: Request) {
     }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
-    const kind = sniff(bytes);
+    const kind = sniffFileKind(bytes);
     if (!kind) return fail('Unsupported file. Upload a PDF, a PNG/JPG/WebP image, or a text file.', 415);
 
-    let input: ExtractInput;
+    let input: ExtractInput | undefined;
     if (kind === 'pdf') {
       input = { kind: 'text', text: await pdfToText(bytes) };
     } else if (kind === 'text') {
       input = { kind: 'text', text: new TextDecoder().decode(bytes).slice(0, MAX_TEXT_CHARS) };
-    } else {
+    } else if (isImageKind(kind)) {
       input = {
         kind: 'image',
-        dataUrl: `data:${MIME_FOR[kind]};base64,${Buffer.from(bytes).toString('base64')}`,
+        dataUrl: `data:${IMAGE_MIME[kind]};base64,${Buffer.from(bytes).toString('base64')}`,
       };
     }
 
+    if (!input) return fail('Unsupported file.', 415);
     const result = await extractDocument(input);
     console.log(
       `[extract] ${kind} → ${result.type} conf=${result.confidence} review=${result.needsReview} ` +
