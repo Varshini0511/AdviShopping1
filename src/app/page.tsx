@@ -48,6 +48,8 @@ const CAPABILITIES = [
 ];
 
 export default async function Home() {
+  // Deployment flag: the image model needs ~150 MB the free host may not have.
+  const visualSearchOff = process.env.DISABLE_VISUAL_SEARCH === 'true';
   const supabase = createServerComponentClient({ cookies });
 
   // Public landing — anyone can browse and search. Login is only needed to use
@@ -121,6 +123,11 @@ export default async function Home() {
             <p className="text-sm font-semibold text-slate-100">
               <span aria-hidden className="mr-2">{c.icon}</span>
               {c.title}
+              {c.title === 'Visual search' && visualSearchOff && (
+                <span className="ml-2 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-300">
+                  off on this demo
+                </span>
+              )}
             </p>
             <p className="mt-1 text-xs leading-relaxed text-slate-400">{c.body}</p>
             {c.href && (
