@@ -131,7 +131,10 @@ for (const p of products) {
       got = await pickOpenverse(OV[p.name]);
       src = 'openverse';
     }
-    if (!got) got = await pickOpenverse(p.name), (src = 'openverse');
+    if (!got) {
+      got = await pickOpenverse(p.name);
+      src = 'openverse';
+    }
     if (!got) throw new Error('no image found');
 
     const file = `${slug(p.name)}.${got.ext}`;
