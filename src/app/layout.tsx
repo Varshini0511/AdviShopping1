@@ -70,8 +70,8 @@ export default function RootLayout({ children }: PropsWithChildren) {
                   Source on GitHub
                 </a>
                 <span className="mx-2 text-slate-600">·</span>
-                <Link href="/visual-search" className="text-slate-300 underline-offset-4 hover:text-white hover:underline">
-                  Visual search
+                <Link href="/privacy" className="text-slate-300 underline-offset-4 hover:text-white hover:underline">
+                  Privacy
                 </Link>
               </span>
             </div>

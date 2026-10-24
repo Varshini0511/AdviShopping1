@@ -16,14 +16,16 @@ const DEMO_ENABLED = Boolean(DEMO_EMAIL && DEMO_PASSWORD);
 const inputClass =
   'w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2.5 text-base text-slate-100 sm:text-sm placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/30';
 
-type Mode = 'signin' | 'signup';
+type Mode = 'signin' | 'signup' | 'reset';
 
 const EXPIRED_LINK_MESSAGE =
   'That confirmation link is invalid, expired or was already used (each link works once, for about an hour, and a newer email replaces older ones). Enter your email below and press Resend for a fresh one.';
 
 function AuthForm() {
   const params = useSearchParams();
-  const [mode, setMode] = useState<Mode>(params.get('mode') === 'signup' ? 'signup' : 'signin');
+  const [mode, setMode] = useState<Mode>(
+    params.get('mode') === 'signup' ? 'signup' : params.get('mode') === 'reset' ? 'reset' : 'signin'
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   // /callback sends us here with ?confirmed=1 (email verified, but this browser
@@ -50,6 +52,7 @@ function AuthForm() {
   }, []);
 
   const isSignup = mode === 'signup';
+  const isReset = mode === 'reset';
 
   function switchMode(next: Mode) {
     setMode(next);
@@ -152,9 +155,34 @@ function AuthForm() {
     setBusy(false);
   }
 
+  async function sendResetLink() {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+
+    // The link lands on /reset-password, which swaps the one-time code for a session
+    // and lets the user choose a new password. That URL must be in Supabase's
+    // Authentication → URL Configuration → Redirect URLs.
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+
+    if (error) {
+      setError(error.message);
+    } else {
+      // Deliberately identical whether or not the address has an account, so this
+      // form can't be used to discover who is registered.
+      setNotice(
+        `If an account exists for ${email}, we've emailed a link to reset the password. It expires in about an hour — open it in this same browser.`
+      );
+    }
+    setBusy(false);
+  }
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (isSignup) void signUp();
+    if (isReset) void sendResetLink();
+    else if (isSignup) void signUp();
     else void signIn(email, password);
   };
 
@@ -163,15 +191,17 @@ function AuthForm() {
       <div className="w-full max-w-sm">
         <div className="rounded-2xl border border-white/10 bg-slate-900/70 p-6 shadow-xl shadow-black/30 backdrop-blur sm:p-8">
           <h1 className="text-xl font-bold text-slate-100">
-            {isSignup ? 'Create your account' : 'Sign in'}
+            {isReset ? 'Reset your password' : isSignup ? 'Create your account' : 'Sign in'}
           </h1>
           <p className="mt-1 text-sm text-slate-400">
-            {isSignup
-              ? 'Sign up to save a cart and use the shopping agent.'
-              : 'Browsing and search are public. Sign in to use the cart and the shopping agent.'}
+            {isReset
+              ? "Enter your email and we'll send you a link to choose a new password."
+              : isSignup
+                ? 'Sign up to save a cart and use the shopping agent.'
+                : 'Browsing and search are public. Sign in to use the cart and the shopping agent.'}
           </p>
 
-          {DEMO_ENABLED && !isSignup && (
+          {DEMO_ENABLED && mode === 'signin' && (
             <div className="mt-6">
               <button
                 type="button"
@@ -192,8 +222,8 @@ function AuthForm() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className={DEMO_ENABLED && !isSignup ? '' : 'mt-6'}>
-            <div className="mb-4">
+          <form onSubmit={handleSubmit} className={DEMO_ENABLED && mode === 'signin' ? '' : 'mt-6'}>
+            <div className={isReset ? 'mb-6' : 'mb-4'}>
               <label className="mb-1.5 block text-sm font-medium text-slate-300" htmlFor="email">
                 Email
               </label>
@@ -208,6 +238,7 @@ function AuthForm() {
                 required
               />
             </div>
+            {!isReset && (
             <div className="mb-6">
               <label className="mb-1.5 block text-sm font-medium text-slate-300" htmlFor="password">
                 Password
@@ -224,17 +255,27 @@ function AuthForm() {
                 required
               />
               {isSignup && <p className="mt-1.5 text-xs text-slate-500">At least 6 characters.</p>}
+              {mode === 'signin' && (
+                <button
+                  type="button"
+                  onClick={() => switchMode('reset')}
+                  className="mt-1.5 text-xs font-medium text-indigo-400 underline-offset-4 hover:text-indigo-300 hover:underline"
+                >
+                  Forgot password?
+                </button>
+              )}
             </div>
+            )}
             <button
               type="submit"
               disabled={busy}
               className={`w-full rounded-lg px-4 py-2.5 text-sm font-semibold transition disabled:opacity-60 ${
-                DEMO_ENABLED && !isSignup
+                DEMO_ENABLED && mode === 'signin'
                   ? 'border border-slate-700 text-slate-200 hover:bg-slate-800'
                   : 'bg-indigo-600 text-white hover:bg-indigo-500'
               }`}
             >
-              {busy ? 'Please wait…' : isSignup ? 'Create account' : 'Sign in'}
+              {busy ? 'Please wait…' : isReset ? 'Send reset link' : isSignup ? 'Create account' : 'Sign in'}
             </button>
 
             {error && (
@@ -263,13 +304,13 @@ function AuthForm() {
           </form>
 
           <p className="mt-6 text-center text-sm text-slate-400">
-            {isSignup ? 'Already have an account?' : 'New here?'}{' '}
+            {isReset ? 'Remembered it?' : isSignup ? 'Already have an account?' : 'New here?'}{' '}
             <button
               type="button"
-              onClick={() => switchMode(isSignup ? 'signin' : 'signup')}
+              onClick={() => switchMode(isReset || isSignup ? 'signin' : 'signup')}
               className="font-semibold text-indigo-400 underline-offset-4 hover:text-indigo-300 hover:underline"
             >
-              {isSignup ? 'Sign in' : 'Create an account'}
+              {isReset || isSignup ? 'Sign in' : 'Create an account'}
             </button>
           </p>
         </div>
